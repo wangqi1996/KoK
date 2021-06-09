@@ -10,7 +10,8 @@ import os
 from argparse import Namespace
 
 import numpy as np
-from fairseq import metrics, options, utils
+
+from fairseq import metrics, utils
 from fairseq.data import (
     AppendTokenDataset,
     ConcatDataset,
@@ -24,34 +25,32 @@ from fairseq.data import (
 )
 from fairseq.tasks import LegacyFairseqTask, register_task
 
-
 EVAL_BLEU_ORDER = 4
-
 
 logger = logging.getLogger(__name__)
 
 
 def load_langpair_dataset(
-    data_path,
-    split,
-    src,
-    src_dict,
-    tgt,
-    tgt_dict,
-    combine,
-    dataset_impl,
-    upsample_primary,
-    left_pad_source,
-    left_pad_target,
-    max_source_positions,
-    max_target_positions,
-    prepend_bos=False,
-    load_alignments=False,
-    truncate_source=False,
-    append_source_id=False,
-    num_buckets=0,
-    shuffle=True,
-    pad_to_multiple=1,
+        data_path,
+        split,
+        src,
+        src_dict,
+        tgt,
+        tgt_dict,
+        combine,
+        dataset_impl,
+        upsample_primary,
+        left_pad_source,
+        left_pad_target,
+        max_source_positions,
+        max_target_positions,
+        prepend_bos=False,
+        load_alignments=False,
+        truncate_source=False,
+        append_source_id=False,
+        num_buckets=0,
+        shuffle=True,
+        pad_to_multiple=1,
 ):
     def split_exists(split, src, tgt, lang, data_path):
         filename = os.path.join(data_path, "{}.{}-{}.{}".format(split, src, tgt, lang))
@@ -400,6 +399,15 @@ class TranslationTask(LegacyFairseqTask):
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
         return (self.args.max_source_positions, self.args.max_target_positions)
+
+    def get_decoder_feature(self, sample, model):
+
+        decoder_output, extra = model(src_tokens=sample['net_input']['src_tokens'],
+                                      src_lengths=sample['net_input']['src_lengths'],
+                                      prev_output_tokens=sample['net_input']['prev_output_tokens'],
+                                      return_all_hiddens=False,
+                                      features_only=True)
+        return decoder_output
 
     @property
     def source_dictionary(self):

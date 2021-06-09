@@ -7,6 +7,7 @@ import argparse
 from typing import Callable, List, Optional
 
 import torch
+
 from fairseq import utils
 from fairseq.data.indexed_dataset import get_available_dataset_impl
 from fairseq.dataclass.data_class import (
@@ -19,9 +20,56 @@ from fairseq.dataclass.data_class import (
     OptimizationParams,
 )
 from fairseq.dataclass.utils import gen_parser_from_dataclass
-
 # this import is for backward compatibility
 from fairseq.utils import csv_str_list, eval_bool, eval_str_dict, eval_str_list  # noqa
+
+
+def get_save_datastore_parser(default_task=None):
+    parser = get_parser("Validation", default_task)
+    add_dataset_args(parser, train=True)
+    add_distributed_training_args(parser, default_world_size=1)
+    add_datastore_args(parser)
+    group = parser.add_argument_group("Evaluation")
+    gen_parser_from_dataclass(group, CommonEvalParams())
+    return parser
+
+
+def add_datastore_args(parser):
+    group = parser.add_argument_group("datastore")
+    group.add_argument("--dstore-fp16", action='store_true',
+                       help="if save only fp16")
+    group.add_argument("--dstore-size", metavar="N", default=1, type=int,
+                       help="datastore size")
+    group.add_argument("--dstore-mmap", default=None, type=str, help="save dir for datastore")
+    group.add_argument("--decoder-embed-dim", metavar="N", default=1024, type=int,
+                       help="decoder embedding size")
+    group.add_argument("--multidomain-shuffle", default=False, action='store_true')
+    group.add_argument("--use-knn-store", default=False, action='store_true')
+    group.add_argument("--k", default=16, type=int)
+    group.add_argument("--faiss-metric-type", default=None, type=str)
+    group.add_argument("--knn-sim-func", default=None, type=str)
+    group.add_argument("--knn-temperature", default=1., type=float)
+    group.add_argument("--use-gpu-to-search", default=False, action='store_true')
+    group.add_argument("--dstore-filename", default=None, type=str)
+    group.add_argument("--move-dstore-to-mem", default=False, action='store_true')
+    group.add_argument("--indexfile", default=None, type=str)
+    group.add_argument("--probe", default=8, type=int)
+    group.add_argument("--no-load-keys", default=False, action='store_true')
+    group.add_argument("--only-use-max-idx", default=False, action='store_true')
+    group.add_argument("--save-plain-text", default=False, action='store_true')
+    group.add_argument("--plain-text-file", default=None, type=str)
+
+    # for deciding knn lambda value
+    group.add_argument("--lambda-type", default=None, type=str, help="fix, based_on_step, based_on_distance")
+    group.add_argument("--lambda-value", default=0, type=float, help="used when lambda type is fix")
+    group.add_argument("--knn-step-bound", default=0, type=int, help="")
+    group.add_argument("--lambda-tend", default=None, type=str, help="increase or decrease")
+    group.add_argument("--lambda-curve", default='linear', type=str, help="")
+
+    # for check knn distance and idx
+    group.add_argument("--check-knn-result", default=False, action='store_true')
+
+    return parser
 
 
 def get_preprocessing_parser(default_task="translation"):
@@ -72,11 +120,11 @@ def get_validation_parser(default_task=None):
 
 
 def parse_args_and_arch(
-    parser: argparse.ArgumentParser,
-    input_args: List[str] = None,
-    parse_known: bool = False,
-    suppress_defaults: bool = False,
-    modify_parser: Optional[Callable[[argparse.ArgumentParser], None]] = None,
+        parser: argparse.ArgumentParser,
+        input_args: List[str] = None,
+        parse_known: bool = False,
+        suppress_defaults: bool = False,
+        modify_parser: Optional[Callable[[argparse.ArgumentParser], None]] = None,
 ):
     """
     Args:
@@ -169,7 +217,7 @@ def parse_args_and_arch(
         extra = None
     # Post-process args.
     if (
-        hasattr(args, "batch_size_valid") and args.batch_size_valid is None
+            hasattr(args, "batch_size_valid") and args.batch_size_valid is None
     ) or not hasattr(args, "batch_size_valid"):
         args.batch_size_valid = args.batch_size
     if hasattr(args, "max_tokens_valid") and args.max_tokens_valid is None:
