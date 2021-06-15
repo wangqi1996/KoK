@@ -9,14 +9,11 @@ import sys
 
 from setuptools import Extension, find_packages, setup
 
-
 if sys.version_info < (3, 6):
     sys.exit("Sorry, Python >= 3.6 is required for fairseq.")
 
-
 with open("README.md") as f:
     readme = f.read()
-
 
 if sys.platform == "darwin":
     extra_compile_args = ["-stdlib=libc++", "-O3"]
@@ -65,9 +62,7 @@ extensions = [
     ),
 ]
 
-
 cmdclass = {}
-
 
 try:
     # torch is not available when generating docs
@@ -101,7 +96,6 @@ try:
 except ImportError:
     pass
 
-
 if "READTHEDOCS" in os.environ:
     # don't build extensions when generating docs
     extensions = []
@@ -115,7 +109,6 @@ if "READTHEDOCS" in os.environ:
 else:
     dependency_links = []
 
-
 if "clean" in sys.argv[1:]:
     # Source: https://bit.ly/2NLVsgE
     print("deleting Cython files...")
@@ -125,7 +118,6 @@ if "clean" in sys.argv[1:]:
         ["rm -f fairseq/*.so fairseq/**/*.so fairseq/*.pyd fairseq/**/*.pyd"],
         shell=True,
     )
-
 
 extra_packages = []
 if os.path.exists(os.path.join("fairseq", "model_parallel", "megatron", "mpu")):
@@ -206,8 +198,8 @@ def get_files(path, relative_to="fairseq"):
 try:
     # symlink examples into fairseq package so package_data accepts them
     fairseq_examples = os.path.join("fairseq", "examples")
-    if "build_ext" not in sys.argv[1:] and not os.path.exists(fairseq_examples):
-        os.symlink(os.path.join("..", "examples"), fairseq_examples)
+    # if "build_ext" not in sys.argv[1:] and not os.path.exists(fairseq_examples):
+    #     os.symlink(os.path.join("..", "examples"), fairseq_examples)
     package_data = {
         "fairseq": get_files("fairseq/config") + get_files("fairseq/examples"),
     }

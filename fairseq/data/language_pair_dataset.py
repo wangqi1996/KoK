@@ -7,21 +7,21 @@ import logging
 
 import numpy as np
 import torch
-from fairseq.data import FairseqDataset, data_utils
 
+from fairseq.data import FairseqDataset, data_utils
 
 logger = logging.getLogger(__name__)
 
 
 def collate(
-    samples,
-    pad_idx,
-    eos_idx,
-    left_pad_source=True,
-    left_pad_target=False,
-    input_feeding=True,
-    pad_to_length=None,
-    pad_to_multiple=1,
+        samples,
+        pad_idx,
+        eos_idx,
+        left_pad_source=True,
+        left_pad_target=False,
+        input_feeding=True,
+        pad_to_length=None,
+        pad_to_multiple=1,
 ):
     if len(samples) == 0:
         return {}
@@ -41,8 +41,8 @@ def collate(
         if alignment is None or len(alignment) == 0:
             return False
         if (
-            alignment[:, 0].max().item() >= src_len - 1
-            or alignment[:, 1].max().item() >= tgt_len - 1
+                alignment[:, 0].max().item() >= src_len - 1
+                or alignment[:, 1].max().item() >= tgt_len - 1
         ):
             logger.warning("alignment size mismatch found, skipping alignment!")
             return False
@@ -159,7 +159,7 @@ def collate(
         max_len = max(lens)
         constraints = torch.zeros((len(samples), max(lens))).long()
         for i, sample in enumerate(samples):
-            constraints[i, 0 : lens[i]] = samples[i].get("constraints")
+            constraints[i, 0: lens[i]] = samples[i].get("constraints")
         batch["constraints"] = constraints
 
     return batch
@@ -205,27 +205,27 @@ class LanguagePairDataset(FairseqDataset):
     """
 
     def __init__(
-        self,
-        src,
-        src_sizes,
-        src_dict,
-        tgt=None,
-        tgt_sizes=None,
-        tgt_dict=None,
-        left_pad_source=True,
-        left_pad_target=False,
-        shuffle=True,
-        input_feeding=True,
-        remove_eos_from_source=False,
-        append_eos_to_target=False,
-        align_dataset=None,
-        constraints=None,
-        append_bos=False,
-        eos=None,
-        num_buckets=0,
-        src_lang_id=None,
-        tgt_lang_id=None,
-        pad_to_multiple=1,
+            self,
+            src,
+            src_sizes,
+            src_dict,
+            tgt=None,
+            tgt_sizes=None,
+            tgt_dict=None,
+            left_pad_source=True,
+            left_pad_target=False,
+            shuffle=True,
+            input_feeding=True,
+            remove_eos_from_source=False,
+            append_eos_to_target=False,
+            align_dataset=None,
+            constraints=None,
+            append_bos=False,
+            eos=None,
+            num_buckets=0,
+            src_lang_id=None,
+            tgt_lang_id=None,
+            pad_to_multiple=1,
     ):
         if tgt_dict is not None:
             assert src_dict.pad() == tgt_dict.pad()
@@ -255,7 +255,7 @@ class LanguagePairDataset(FairseqDataset):
         self.align_dataset = align_dataset
         if self.align_dataset is not None:
             assert (
-                self.tgt_sizes is not None
+                    self.tgt_sizes is not None
             ), "Both source and target needed when alignments are provided"
         self.constraints = constraints
         self.append_bos = append_bos
@@ -419,6 +419,10 @@ class LanguagePairDataset(FairseqDataset):
     def ordered_indices(self):
         """Return an ordered list of indices. Batches will be constructed based
         on this order."""
+
+        if not self.shuffle:
+            return np.arange(len(self), dtype=np.int64)
+
         if self.shuffle:
             indices = np.random.permutation(len(self)).astype(np.int64)
         else:
@@ -438,7 +442,7 @@ class LanguagePairDataset(FairseqDataset):
     @property
     def supports_prefetch(self):
         return getattr(self.src, "supports_prefetch", False) and (
-            getattr(self.tgt, "supports_prefetch", False) or self.tgt is None
+                getattr(self.tgt, "supports_prefetch", False) or self.tgt is None
         )
 
     def prefetch(self, indices):

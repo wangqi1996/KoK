@@ -309,7 +309,7 @@ class TranslationTask(LegacyFairseqTask):
             load_alignments=self.args.load_alignments,
             truncate_source=self.args.truncate_source,
             num_buckets=self.args.num_batch_buckets,
-            shuffle=(split != "test"),
+            shuffle=(split != "test") and not kwargs.get('generate', False),
             pad_to_multiple=self.args.required_seq_len_multiple,
         )
 

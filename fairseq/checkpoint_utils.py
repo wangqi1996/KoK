@@ -12,16 +12,16 @@ from collections import OrderedDict
 from typing import Union
 
 import torch
-from fairseq.file_io import PathManager
-from fairseq.models import FairseqDecoder, FairseqEncoder
 from torch.serialization import default_restore_location
 
+from fairseq.file_io import PathManager
+from fairseq.models import FairseqDecoder, FairseqEncoder
 
 logger = logging.getLogger(__name__)
 
 
 def save_checkpoint(args, trainer, epoch_itr, val_loss):
-    from fairseq import distributed_utils, meters
+    from fairseq import meters
 
     # only one worker should attempt to create the required dir
     if args.distributed_rank == 0:
@@ -53,18 +53,18 @@ def save_checkpoint(args, trainer, epoch_itr, val_loss):
     suffix = getattr(args, "checkpoint_suffix", "")
     checkpoint_conds = collections.OrderedDict()
     checkpoint_conds["checkpoint{}{}.pt".format(epoch, suffix)] = (
-        end_of_epoch
-        and not args.no_epoch_checkpoints
-        and epoch % args.save_interval == 0
+            end_of_epoch
+            and not args.no_epoch_checkpoints
+            and epoch % args.save_interval == 0
     )
     checkpoint_conds["checkpoint_{}_{}{}.pt".format(epoch, updates, suffix)] = (
-        not end_of_epoch
-        and args.save_interval_updates > 0
-        and updates % args.save_interval_updates == 0
+            not end_of_epoch
+            and args.save_interval_updates > 0
+            and updates % args.save_interval_updates == 0
     )
     checkpoint_conds["checkpoint_best{}.pt".format(suffix)] = val_loss is not None and (
-        not hasattr(save_checkpoint, "best")
-        or is_better(val_loss, save_checkpoint.best)
+            not hasattr(save_checkpoint, "best")
+            or is_better(val_loss, save_checkpoint.best)
     )
     if val_loss is not None and args.keep_best_checkpoints > 0:
         checkpoint_conds[
@@ -100,14 +100,14 @@ def save_checkpoint(args, trainer, epoch_itr, val_loss):
         checkpoints = checkpoint_paths(
             args.save_dir, pattern=r"checkpoint_\d+_(\d+)\.pt"
         )
-        for old_chk in checkpoints[args.keep_interval_updates :]:
+        for old_chk in checkpoints[args.keep_interval_updates:]:
             if os.path.lexists(old_chk):
                 os.remove(old_chk)
 
     if args.keep_last_epochs > 0:
         # remove old epoch checkpoints; checkpoints are sorted in descending order
         checkpoints = checkpoint_paths(args.save_dir, pattern=r"checkpoint(\d+)\.pt")
-        for old_chk in checkpoints[args.keep_last_epochs :]:
+        for old_chk in checkpoints[args.keep_last_epochs:]:
             if os.path.lexists(old_chk):
                 os.remove(old_chk)
 
@@ -121,7 +121,7 @@ def save_checkpoint(args, trainer, epoch_itr, val_loss):
         )
         if not args.maximize_best_checkpoint_metric:
             checkpoints = checkpoints[::-1]
-        for old_chk in checkpoints[args.keep_best_checkpoints :]:
+        for old_chk in checkpoints[args.keep_best_checkpoints:]:
             if os.path.lexists(old_chk):
                 os.remove(old_chk)
 
@@ -140,7 +140,7 @@ def load_checkpoint(args, trainer, **passthrough_args):
     reset_dataloader = args.reset_dataloader
 
     if getattr(args, "finetune_from_model", None) is not None and (
-        reset_optimizer or reset_lr_scheduler or reset_meters or reset_dataloader
+            reset_optimizer or reset_lr_scheduler or reset_meters or reset_dataloader
     ):
         raise ValueError(
             "--finetune-from-model can not be set together with either --reset-optimizer"
@@ -149,7 +149,7 @@ def load_checkpoint(args, trainer, **passthrough_args):
 
     suffix = getattr(args, "checkpoint_suffix", "")
     if (
-        args.restore_file == "checkpoint_last.pt"
+            args.restore_file == "checkpoint_last.pt"
     ):  # default value of restore_file is 'checkpoint_last.pt'
         checkpoint_path = os.path.join(
             args.save_dir, "checkpoint_last{}.pt".format(suffix)
@@ -178,7 +178,7 @@ def load_checkpoint(args, trainer, **passthrough_args):
         checkpoint_path = args.restore_file
 
     if args.restore_file != "checkpoint_last.pt" and getattr(
-        args, "finetune_from_model", None
+            args, "finetune_from_model", None
     ):
         raise ValueError(
             "--finetune-from-model and --restore-file (non-default value) "
@@ -194,10 +194,10 @@ def load_checkpoint(args, trainer, **passthrough_args):
     )
 
     if (
-        extra_state is not None
-        and "best" in extra_state
-        and not reset_optimizer
-        and not reset_meters
+            extra_state is not None
+            and "best" in extra_state
+            and not reset_optimizer
+            and not reset_meters
     ):
         save_checkpoint.best = extra_state["best"]
 
@@ -234,7 +234,7 @@ def load_checkpoint_to_cpu(path, arg_overrides=None):
 
 
 def load_model_ensemble(
-    filenames, arg_overrides=None, task=None, strict=True, suffix="", num_shards=1
+        filenames, arg_overrides=None, task=None, strict=True, suffix="", num_shards=1
 ):
     """Loads an ensemble of models.
 
@@ -245,7 +245,7 @@ def load_model_ensemble(
         task (fairseq.tasks.FairseqTask, optional): task to use for loading
     """
     assert not (
-        strict and num_shards > 1
+            strict and num_shards > 1
     ), "Cannot load state dict with strict=True and checkpoint shards > 1"
     ensemble, args, _task = load_model_ensemble_and_task(
         filenames,
@@ -259,12 +259,12 @@ def load_model_ensemble(
 
 
 def load_model_ensemble_and_task(
-    filenames, arg_overrides=None, task=None, strict=True, suffix="", num_shards=1
+        filenames, arg_overrides=None, task=None, strict=True, suffix="", num_shards=1
 ):
     from fairseq import tasks
 
     assert not (
-        strict and num_shards > 1
+            strict and num_shards > 1
     ), "Cannot load state dict with strict=True and checkpoint shards > 1"
     ensemble = []
     for filename in filenames:
@@ -322,15 +322,15 @@ def torch_persistent_save(obj, f):
 
 
 def save_state(
-    filename,
-    args,
-    model_state_dict,
-    criterion,
-    optimizer,
-    lr_scheduler,
-    num_updates,
-    optim_history=None,
-    extra_state=None,
+        filename,
+        args,
+        model_state_dict,
+        criterion,
+        optimizer,
+        lr_scheduler,
+        num_updates,
+        optim_history=None,
+        extra_state=None,
 ):
     from fairseq import utils
 
@@ -342,14 +342,14 @@ def save_state(
         "args": args,
         "model": model_state_dict or {},
         "optimizer_history": optim_history
-        + [
-            {
-                "criterion_name": criterion.__class__.__name__,
-                "optimizer_name": optimizer.__class__.__name__,
-                "lr_scheduler_state": lr_scheduler.state_dict(),
-                "num_updates": num_updates,
-            }
-        ],
+                             + [
+                                 {
+                                     "criterion_name": criterion.__class__.__name__,
+                                     "optimizer_name": optimizer.__class__.__name__,
+                                     "lr_scheduler_state": lr_scheduler.state_dict(),
+                                     "num_updates": num_updates,
+                                 }
+                             ],
         "extra_state": extra_state,
     }
     if utils.has_parameters(criterion):
@@ -405,7 +405,7 @@ def _upgrade_state_dict(state):
         state["optimizer_history"][-1]["num_updates"] = 0
     # old model checkpoints may not have separate source/target positions
     if hasattr(state["args"], "max_positions") and not hasattr(
-        state["args"], "max_source_positions"
+            state["args"], "max_source_positions"
     ):
         state["args"].max_source_positions = state["args"].max_positions
         state["args"].max_target_positions = state["args"].max_positions
@@ -510,9 +510,9 @@ def prune_state_dict(state_dict, args):
                     layer_name
                 )
                 new_state_key = (
-                    layer_name[: substitution_match.start(1)]
-                    + new_layer_number
-                    + layer_name[substitution_match.end(1) :]
+                        layer_name[: substitution_match.start(1)]
+                        + new_layer_number
+                        + layer_name[substitution_match.end(1):]
                 )
                 new_state_dict[new_state_key] = state_dict[layer_name]
 
@@ -527,7 +527,7 @@ def prune_state_dict(state_dict, args):
 
 
 def load_pretrained_component_from_model(
-    component: Union[FairseqEncoder, FairseqDecoder], checkpoint: str
+        component: Union[FairseqEncoder, FairseqDecoder], checkpoint: str
 ):
     """
     Load a pretrained FairseqEncoder or FairseqDecoder from checkpoint into the
@@ -551,7 +551,7 @@ def load_pretrained_component_from_model(
     for key in state["model"].keys():
         if key.startswith(component_type):
             # encoder.input_layers.0.0.weight --> input_layers.0.0.weight
-            component_subkey = key[len(component_type) + 1 :]
+            component_subkey = key[len(component_type) + 1:]
             component_state_dict[component_subkey] = state["model"][key]
     component.load_state_dict(component_state_dict, strict=True)
     return component

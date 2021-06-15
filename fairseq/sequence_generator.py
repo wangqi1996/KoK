@@ -2,7 +2,7 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-
+import copy
 import math
 from typing import Dict, List, Optional
 
@@ -236,7 +236,7 @@ class SequenceGenerator(nn.Module):
         ), "min_len cannot be larger than max_len, please adjust these!"
         # compute the encoder output for each beam
         encoder_outs = self.model.forward_encoder(net_input)
-
+        encoder_out_bak = copy.deepcopy(encoder_outs[0])
         # placeholder of indices for bsz * beam_size to hold tokens and accumulative scores
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
@@ -540,6 +540,11 @@ class SequenceGenerator(nn.Module):
             finalized[sent] = torch.jit.annotate(
                 List[Dict[str, Tensor]], finalized[sent]
             )
+
+        hypo_value = [f[0]['tokens'] for f in finalized]
+        hypo_value = torch.stack(hypo_value, dim=0)
+        self.model.post_process(sample, encoder_out_bak, hypo_value=hypo_value)
+
         return finalized
 
     def _prefix_tokens(
@@ -806,6 +811,9 @@ class EnsembleModel(nn.Module):
             return None
         return [model.encoder.forward_torchscript(net_input) for model in self.models]
 
+    def post_process(self, sample, encoder_out, **kwargs):
+        return self.models[0].post_process(sample, encoder_out, **kwargs)
+
     @torch.jit.export
     def forward_decoder(
             self,
@@ -846,14 +854,12 @@ class EnsembleModel(nn.Module):
                 if attn is not None:
                     attn = attn[:, -1, :]
 
-            decoder_out[0] = decoder_out[0][:, -1:, :].div_(temperature)
-            # decoder_out_tuple = (
-            #     decoder_out[0][:, -1:, :].div_(temperature),
-            #     None if decoder_len <= 1 else decoder_out[1],
-            # )
+            decoder_out_tuple = (
+                                    decoder_out[0][:, -1:, :].div_(temperature),
+                                ) + decoder_out[1:]
 
             probs = model.get_normalized_probs(
-                decoder_out, log_probs=True, sample=None
+                decoder_out_tuple, log_probs=True, sample=None
             )
             probs = probs[:, -1, :]
             if self.models_size == 1:
