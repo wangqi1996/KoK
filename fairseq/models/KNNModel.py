@@ -3,7 +3,8 @@ import logging
 import faiss.contrib.torch_utils
 import torch
 
-from fairseq.models.KNNModel_bak import KNNDatastore
+from fairseq.models.CombinationMethod import get_combination_class
+from fairseq.models.KNNModel_bak import KNNDatastore, DynamicD, whitening_queries
 
 faiss.logger.level = logging.WARNING
 
@@ -24,88 +25,85 @@ def build_knn_datastore(args, task, **kwargs):
         return PosteriorKNNDatastore(args, task)
     elif knn_type == "label-datastore":
         return LabelTokenDatastore(args, task)
-
-
-def count_knn_result(tgt_index, mask_for_label_count):
-    B, S, K = tgt_index.size()
-
-    expand_tgt_idx = tgt_index.unsqueeze(-2).expand(B, S, K, K)
-    expand_tgt_idx = expand_tgt_idx.masked_fill(mask_for_label_count[:K, :K], value=-1)
-
-    labels_sorted, _ = expand_tgt_idx.sort(dim=-1)  # [B, S, K, K]
-    labels_sorted[:, :, :, 1:] *= ((labels_sorted[:, :, :, 1:] - labels_sorted[:, :, :, :-1]) != 0).long()
-    retrieve_label_counts = labels_sorted.ne(0).sum(-1)  # [B, S, K]
-    retrieve_label_counts[:, :, :-1] -= 1
-
-    return retrieve_label_counts
-
-
-def generate_label_count_mask(max_k):
-    # [0, 1, 1]
-    # [0, 0, 1]
-    # [0, 0, 0]
-    mask_for_label_count = torch.empty((max_k, max_k)).fill_(1)
-    mask_for_label_count = torch.triu(mask_for_label_count, diagonal=1).bool()
-
-    if torch.cuda.is_available():
-        mask_for_label_count = mask_for_label_count.cuda()
-
-        mask_for_label_count.requires_grad = False
-    return mask_for_label_count
+    elif knn_type == 'dynamic-d':
+        return DynamicD(args, task)
 
 
 class LabelDatastore(KNNDatastore):
-    def __init__(self, args, task, **kwargs):
-        self.label_knn_key = getattr(args, "label_knn_key", '1')
-        self.label_knn_value = getattr(args, "label_knn_value", '1')
+    def __init__(self, args, task, token_datastore=None, **kwargs):
+        # feature list
+        self.label_count = getattr(args, "label_count", False)
+        self.distance = getattr(args, "distance", False)
+
+        # combination method
+        self.combination_method = getattr(args, "combination_method", 'relative-flat')
+        self.value_method = getattr(args, "value_method", 'in-all')
+        self.combination = get_combination_class(self.combination_method, args.k, self.value_method, token_datastore)
+
         super(LabelDatastore, self).__init__(args, task, **kwargs)
-        self.mask_for_label_count = generate_label_count_mask(self.k)
+
+        self.temperature = args.label_temperature_value
+        self.whitening = getattr(args, "whitening", "none")
+        if self.whitening != "none":
+            self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
 
     def get_index_dim(self, args):
-        if self.label_knn_key == '1':
-            return self.k * 2
+        feature_num = 0
+        if self.label_count:
+            feature_num += 1
+        if self.distance:
+            feature_num += 1
 
-    def set_dstore_size(self, task=None, **kwargs):
-        if self.label_knn_key == '1':
-            super(LabelDatastore, self).set_dstore_size(task, **kwargs)
+        return self.combination.get_index_dim(self.k, feature_num)
 
-    def extract_feature(self, knn_result):
-        if self.label_knn_key == '1':
-            # [k1 distance, k2 distance, k1 count, k2 count]
-            retrieve_distance = knn_result['distance']
-            relative_distance = retrieve_distance / retrieve_distance[:, :, 0].unsqueeze(-1)
+    def get_dstore_size(self, task=None, **kwargs):
 
-            retrieve_tgt_index = knn_result['tgt_index']
-            label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+        return self.combination.get_datastore_size(task.datasets['train'].tgt.sizes.sum(), self.k)
 
-            key = torch.cat((relative_distance, label_count), dim=-1)
+    def extract_feature(self, knn_result, search=False, keepdim=False):
+        """ call: (1). search label datastore    (2). save knn datastore"""
+        feature = None
 
-        return key
+        batch_size, seq_len, _ = knn_result['distance'].shape
+        if self.distance:
+            distance = self.combination.get_distance_feature(knn_result['distance'], search=search)
+            feature = distance
 
-    def extract_value(self, retrieve_tokens, reference):
-        if self.label_knn_value == '1':
-            # reference token in knn retrieve result, the value is 1, else 0
-            real_tokens = reference.unsqueeze(-1)
-            value = (real_tokens == retrieve_tokens).long()
-            value = value.sum(-1)
-            value.masked_fill_(value > 1, 1)
+        if self.label_count:
+            label_count = self.combination.get_label_count(knn_result['tgt_index'], search=search).float()
+            feature = label_count if feature is None else torch.cat((feature, label_count), dim=-1)
+        if keepdim:
+            knn_dim = feature.size(-1)
+            feature = feature.view(batch_size, seq_len, knn_dim)
 
-        return value
+        return feature  # [-1, knn_dim]
+
+    def extract_value(self, retrieve_tokens, reference, **kwargs):
+        return self.combination.extract_value(retrieve_tokens, reference, **kwargs)  # [-1, knn_dim]
 
     def retrieve_and_score(self, queries, token_knn=None, **kwargs):
-        if token_knn['distance'] is not None:
-            queries = self.extract_feature(token_knn)
+        """ token_knn=None  => directly input queries"""
+        if token_knn is not None and token_knn['distance'] is not None:
+            queries = self.extract_feature(token_knn, search=True, keepdim=True)
+
+            if self.whitening == "datastore":
+                q_dim = queries.size(-1)
+                queries = whitening_queries(queries.view(-1, q_dim), self.mu, self.s, self.u)
+
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
-            result['score'] = result['score'][:, :, 1].unsqueeze(-1)
-
+            result['score'] = result['score'][:, :, 1].unsqueeze(-1)  # 取出使用knn的p。
+            # 1.0 --> 0.99, else, log(0)
+            score_mask = result['score'] > 0.99
+            result['score'].masked_fill_(score_mask, 0.99)
         return result
 
 
 class LabelTokenDatastore(object):
     def __init__(self, args, task, **kwargs):
         self.token_datastore = KNNDatastore(args, task)
-        self.label_datastore = LabelDatastore(args, task, vocab_size=2)
+        self.token_datastore.temperature = 10
+        self.label_datastore = LabelDatastore(args, task, vocab_size=2, token_datastore=self.token_datastore)
 
     def retrieve_and_score(self, queries, **kwargs):
         token_result = self.token_datastore.retrieve_and_score(queries, **kwargs)
@@ -118,8 +116,14 @@ class LabelTokenDatastore(object):
 
     @staticmethod
     def add_args(parser):
-        parser.add_argument('--label-knn-key', type=str, default='1')
-        parser.add_argument('--label-knn-value', type=str, default='1')
+        parser.add_argument('--combination-method', type=str, default='relative-flat')
+        parser.add_argument('--value-method', type=str, default="equal")
+
+        parser.add_argument('--distance', action="store_true")
+        parser.add_argument('--label-count', action="store_true")
+
+        parser.add_argument('--save-label-datastore', action="store_true")
+        parser.add_argument('--compute-label-accuracy', action="store_true")
 
     def get_normalized_probs(
             self,
@@ -130,16 +134,47 @@ class LabelTokenDatastore(object):
         return self.token_datastore.get_normalized_probs(logits, log_probs, **extra)
 
     def add_datastore(self, key, value, **kwargs):
-        # get label value
         knn_result = self.token_datastore.retrieve(key)  # [B, S, K]
         retrieve_tokens = knn_result['tgt_index']
         if retrieve_tokens is not None and retrieve_tokens.size(-1) == self.token_datastore.k:
             mask = self.token_datastore.get_add_mask(value, **kwargs)
             assert (~mask).long().sum() == 0  # b=1, no invalid token  ==>  don't mask the label key and  label value,
 
-            label_value = self.label_datastore.extract_value(retrieve_tokens, value)
+            retrieve_tokens = retrieve_tokens.squeeze(-1)
+            label_value = self.label_datastore.extract_value(retrieve_tokens=retrieve_tokens,
+                                                             reference=value, p_nmt=kwargs.get('p_nmt', None),
+                                                             knn_result=knn_result)
+
             label_key = self.label_datastore.extract_feature(knn_result)
-            self.label_datastore._add(mask, label_key, label_value)
+
+            self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
 
         # first add label datastore, then add token datastore
         self.token_datastore.add_datastore(key, value, **kwargs)
+
+    # def compute_accuracy(self, label_key, label_value):
+    #     result = self.label_datastore.retrieve_and_score(label_key, token_knn=None)
+    #     label_score = result['score']
+    #     # self.save_temp(label_score, )
+    #
+    # def save_temp(self, label_key, label_value, filename=None):
+    #     content = []
+    #     for d, v in zip(label_key.cpu().tolist(), label_value.cpu().tolist()):
+    #         content.append("%.2f\t%s\n" % (d[0], v))
+    #
+    #     with open(self.filename, 'a') as f:
+    #         f.writelines(content)
+
+    # self.save_label_datastore = getattr(args, "save_label_datastore", False)
+    # if self.save_label_datastore:
+    #     f = os.path.basename(self.label_datastore.args.path)
+    #     self.filename = os.path.join('/home/data_ti5_c/wangdq/code/knn-mt/output/', f)
+    #     with open(self.filename, 'w'):
+    #         pass
+    #
+    # self.compute_label_accuracy = getattr(args, "compute_label_accuracy", False)
+    # if self.compute_label_accuracy:
+    #     f = os.path.basename(self.label_datastore.args.path)
+    #     self.label_filename = os.path.join('/home/data_ti5_c/wangdq/code/knn-mt/label_accuracy/', f)
+    #     with open(self.filename, 'w'):
+    #         pass

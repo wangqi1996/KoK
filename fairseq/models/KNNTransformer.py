@@ -1,5 +1,6 @@
 from typing import Tuple, Optional, Dict, List, Any
 
+import torch
 from torch import Tensor
 
 from fairseq.models import register_model, register_model_architecture
@@ -14,6 +15,7 @@ class KNNTransformerDecoder(TransformerDecoder):
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn)
         self.knn_datastore = build_knn_datastore(args, task)
         self.knn_type = args.knn_type
+        self.value_method = getattr(args, "value_method", 'equal')
 
     def forward(
             self,
@@ -51,11 +53,17 @@ class KNNTransformerDecoder(TransformerDecoder):
         score = self.knn_datastore.get_normalized_probs(logits, log_probs, knn_result=knn_result)
         return score
 
+    def get_knn_score(self, feature):
+        x = self.output_layer(feature)
+        p_nmt = x.softmax(dim=-1, dtype=torch.float32)
+        return p_nmt
+
     def add_datastore(self, sample, encoder_out, **kwargs):
         feature, _ = self.extract_features(
             prev_output_tokens=sample['net_input']['prev_output_tokens'],
             encoder_out=encoder_out
         )
+
         hypo_key = None
         if self.knn_type == "positive-negative":
             tokens = self.compute_hypos_input(kwargs["hypo_value"])
@@ -63,7 +71,11 @@ class KNNTransformerDecoder(TransformerDecoder):
                 prev_output_tokens=tokens,
                 encoder_out=encoder_out
             )
-        return self.knn_datastore.add_datastore(feature, sample['target'], hypo_key=hypo_key, **kwargs)
+
+        p_nmt = None
+        if self.knn_type == 'label-datastore' and self.value_method in ['vs-all', 'vs-top1']:
+            p_nmt = self.get_knn_score(feature)
+        return self.knn_datastore.add_datastore(feature, sample['target'], hypo_key=hypo_key, p_nmt=p_nmt, **kwargs)
 
     def compute_hypos_input(self, hypo_value):
         assert hypo_value.size(0) == 1

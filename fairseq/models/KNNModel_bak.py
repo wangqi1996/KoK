@@ -13,6 +13,53 @@ from fairseq import utils
 faiss.logger.level = logging.WARNING
 
 
+def whitening_torch_final(embeddings):
+    mu = torch.mean(embeddings, dim=0, keepdim=True)
+    cov = torch.mm((embeddings - mu).t(), embeddings - mu)
+    u, s, vt = torch.svd(cov)
+    W = torch.mm(u, torch.diag(1 / torch.sqrt(s)))
+    embeddings = torch.mm(embeddings - mu, W)
+    return embeddings, mu, s, u
+
+
+def whitening_queries(queries, mu, s, u):
+    W = torch.mm(u, torch.diag(1 / torch.sqrt(s)))
+    embeddings = torch.mm(queries - mu, W)
+    return embeddings
+
+
+def calculate_knn_prob(tgt_index: torch.Tensor,  # [B, S, K]
+                       distance: torch.Tensor,  # [B, S, K]
+                       temperature: torch.Tensor,  # [B, S, 1]
+                       k=8,
+                       vocab_size=1,
+                       return_every_k=False,
+                       ):
+    bsz, seq_len, _ = distance.size()
+
+    re_compute_dists = -1 * distance  # [B, S, K]
+
+    scaled_dists = re_compute_dists / temperature
+    knn_weight = torch.softmax(scaled_dists, dim=-1).unsqueeze(-1)  # [B, S, K, 1]
+
+    knn_tgt_prob = torch.zeros(bsz, seq_len, k, vocab_size).to(distance.device)  # [B, S, K, Vocab Size]
+    tgt_index = tgt_index.unsqueeze_(-1)  # [B, S, K, 1]
+
+    scatter(src=knn_weight.float(), out=knn_tgt_prob, index=tgt_index, dim=-1)
+
+    if not return_every_k:
+        prob = knn_tgt_prob.sum(dim=-2)  # [Batch Size, seq len, vocab size]
+    else:
+        prob = knn_tgt_prob  # [Batch size, seq len, k, vocab size]
+
+    return prob
+
+
+def compute_distance(knn_content, queries):
+    d = (knn_content.float() - queries.float()) ** 2
+    return d.sum(-1).to(queries)
+
+
 class KNNDatastore(object):
     def __init__(self, args, task, **kwargs):
         self.args = args
@@ -30,11 +77,22 @@ class KNNDatastore(object):
         self.max_lambda = getattr(args, "max_lambda", 0.3)
         self.distance_threshold = getattr(args, "distance_threshold", -1)
 
+        self.whitening = "none"
+
     def get_index_dim(self, args):
         return args.decoder_embed_dim
 
+    def calculate_knn_prob(self, tgt_index: torch.Tensor,
+                           distance: torch.Tensor,
+                           temperature: torch.Tensor,
+                           return_every_k=False):
+        return calculate_knn_prob(tgt_index, distance, temperature, k=self.k, vocab_size=self.vocab_size,
+                                  return_every_k=return_every_k)
+
     @staticmethod
     def add_args(parser):
+        parser.add_argument('--knn-type', type=str)
+
         parser.add_argument("--linear-lambda", action="store_true")
         parser.add_argument("--min-lambda", type=float, default=0.0)
         parser.add_argument("--max-lambda", type=float, default=0.0)
@@ -44,20 +102,23 @@ class KNNDatastore(object):
 
         parser.add_argument("--distance-threshold", type=float, default=-1)
 
+        parser.add_argument('--whitening', type=str, default="none")  # retrieve, datastore
+        parser.add_argument('--label-temperature-value', type=float, default=10)
+
         from fairseq.models.KNNModel_bak import FixKNNDatastore
         FixKNNDatastore.add_args(parser)
 
-    def set_dstore_size(self, task=None, **kwargs):
-        self.dstore_size = task.datasets['train'].tgt.sizes.sum() + 2
+    def get_dstore_size(self, task=None, **kwargs):
+        return task.datasets['train'].tgt.sizes.sum() + 2
 
     def setup_index(self, task):
 
-        self.set_dstore_size(task)
+        self.dstore_size = self.get_dstore_size(task)
 
         index = faiss.IndexFlatL2(self.dimension)
         res = faiss.StandardGpuResources()
         co = faiss.GpuClonerOptions()
-        co.useFloat16 = True
+        # co.useFloat16 = True
         index = faiss.index_cpu_to_gpu(res, 0, index, co)
 
         self.vals = torch.zeros((self.dstore_size, 1), dtype=torch.int64).cuda()
@@ -81,16 +142,14 @@ class KNNDatastore(object):
         return self.lambda_value
 
     def retrieve(self, queries):
-        if self.index.ntotal <= 0:
+        if self.index.ntotal <= self.k:
             return {'distance': None, 'knn_index': None, 'tgt_index': None}
 
         bsz, seq_len, q_dim = queries.size()
 
-        # search
         k = min(self.k, self.index.ntotal)
-        dists, knns = self.index.search(queries.view(-1, q_dim), k)
+        dists, knns = self.index.search(queries.view(-1, q_dim).contiguous(), k)
 
-        # get the value
         tgt_idx = self.vals[knns].to(queries.device).squeeze(-1)
         tgt_idx = tgt_idx.view(bsz, seq_len, -1)
         dists = dists.view(bsz, seq_len, -1)
@@ -98,9 +157,7 @@ class KNNDatastore(object):
 
         return {'distance': dists, 'knn_index': knns, 'tgt_index': tgt_idx}
 
-    def retrieve_and_score(self, queries, **kwargs):
-        knn_result = self.retrieve(queries)
-
+    def get_score(self, knn_result, return_every_k=False):
         knn_distance = knn_result['distance']
         if knn_distance is None:
             return {"score": 0, "lambda": 0, "distance": None, "index": None}
@@ -108,7 +165,7 @@ class KNNDatastore(object):
         knn_index, tgt_index = knn_result['knn_index'], knn_result['tgt_index']
 
         knn_lambda = self.get_lambda(distance=knn_distance)
-        knn_score = self.calculate_knn_prob(knn_index, tgt_index, knn_distance, queries, self.temperature)
+        knn_score = self.calculate_knn_prob(tgt_index, knn_distance, self.temperature, return_every_k=return_every_k)
         return {
             "score": knn_score,
             "lambda": knn_lambda,
@@ -116,42 +173,30 @@ class KNNDatastore(object):
             "tgt_index": tgt_index.squeeze(-1)
         }
 
-    def calculate_knn_prob(self,
-                           knn_index: torch.Tensor,  # [B, S, K]
-                           tgt_index: torch.Tensor,  # [B, S, K]
-                           distance: torch.Tensor,  # [B, S, K]
-                           queries: torch.Tensor,  # [B, S, H]
-                           temperature: torch.Tensor,  # [B, S, 1]
-                           ):
+    def retrieve_and_score(self, queries, **kwargs):
+        knn_result = self.retrieve(queries)
+        score = self.get_score(knn_result)
+        return score
 
-        bsz, seq_len, _ = queries.size()
-
-        re_compute_dists = -1 * distance  # [B, S, K]
-
-        scaled_dists = re_compute_dists / temperature
-        knn_weight = torch.softmax(scaled_dists, dim=-1).unsqueeze(-1)  # [B, S, K, 1]
-
-        knn_tgt_prob = torch.zeros(bsz, seq_len, self.k, self.vocab_size).to(queries.device)  # [B, S, K, Vocab Size]
-        tgt_index = tgt_index.unsqueeze_(-1)  # [B, S, K, 1]
-
-        scatter(src=knn_weight.float(), out=knn_tgt_prob, index=tgt_index, dim=-1)
-
-        prob = knn_tgt_prob.sum(dim=-2)  # [Batch Size, seq len, vocab size]
-
-        return prob
-
-    def _add_mask_value(self, key, value):
+    def add_mask_value(self, key, value):
+        assert key.size(0) == value.size(0)
         if len(value) == 0:
             return
         _len, = value.shape
         self.vals[self.val_index: self.val_index + _len] = value.unsqueeze(-1)
+        if self.whitening == "datastore":
+            self.key[self.val_index: self.val_index + _len] = key  # 存储未变化前的数值
+            key, self.mu, self.s, self.u = whitening_torch_final(
+                self.key[: self.val_index + _len])
+            key = key[self.val_index: self.val_index + _len]
+
         self.val_index += _len
         self.index.add(key)
 
     def _add(self, mask, key, value):
         value = value[mask].int()
         key = key[mask].float()
-        self._add_mask_value(key, value)
+        self.add_mask_value(key, value)
 
     def add_datastore(self, key, value, **kwargs):
         mask = self.get_add_mask(value, **kwargs)
@@ -172,9 +217,6 @@ class KNNDatastore(object):
         score = logits * (1 - knn_lambda) + knn_score * knn_lambda
 
         if log_probs:
-            # TODO 这会造成概率和大于1
-            score_mask = score < 1e-10
-            score.masked_fill_(score_mask, 1e-10)
             score = torch.log(score)
         return score
 
@@ -307,3 +349,25 @@ class PositiveNegativeDatastore(object):
                     negative_mask[b][i] = True
 
         return positive_mask, negative_mask
+
+
+class DynamicD(KNNDatastore):
+    def __init__(self, args, task):
+        super(DynamicD, self).__init__(args, task)
+        self.distance_threshold = 100
+
+    def update_distance_threshold(self, key, value):
+        knn_result = self.retrieve(key)
+        retrieve_tokens = knn_result['tgt_index']
+        if retrieve_tokens is None:
+            return
+        correct_mask = retrieve_tokens == value.unsqueeze(-1)
+        distance = knn_result['distance'][correct_mask]
+        distance = distance.sum() / len(distance)
+        self.distance_threshold = self.distance_threshold * 0.9 + 0.1 * distance
+        # print("threshold: ", self.distance_threshold)
+
+    def add_datastore(self, key, value, **kwargs):
+        self.update_distance_threshold(key, value)
+        mask = self.get_add_mask(value, **kwargs)
+        self._add(mask, key, value)
