@@ -13,6 +13,7 @@ INALL = 'in-all'
 INTOP1 = 'in-top1'
 VSALL = 'vs-all'
 VSTOP1 = 'vs-top1'
+VSALL1 = 'vs-all-1'
 
 
 def get_combination_class(method, k, value_method, token_datastore):
@@ -138,7 +139,7 @@ class Flat(CombinationMethod):
         elif self.value_method == INTOP1:
             """ y_t in [t_1] """
             value = (reference == retrieve_tokens[:, :, 0]).long()
-        elif self.value_method == VSALL:
+        elif self.value_method in [VSALL1, VSALL]:
             """ p_knn(y_t) vs p_nmt(y_t) """
             batch_size, seq_len, vocab_size = p_nmt.shape
             p_nmt = p_nmt.view(-1, vocab_size)
@@ -148,6 +149,10 @@ class Flat(CombinationMethod):
             p_knn = p_knn.view(-1, vocab_size)
             p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
             value = (p_nmt < p_knn).long()
+            if self.value_method == VSALL1:
+                mask = (reference == retrieve_tokens[:, :, 0]).view(value.shape)
+                value.masked_fill_(~mask, 0)
+
         return value.view(-1)
 
 

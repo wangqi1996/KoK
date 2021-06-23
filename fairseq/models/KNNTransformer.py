@@ -73,7 +73,7 @@ class KNNTransformerDecoder(TransformerDecoder):
             )
 
         p_nmt = None
-        if self.knn_type == 'label-datastore' and self.value_method in ['vs-all', 'vs-top1']:
+        if self.knn_type == 'label-datastore' and self.value_method in ['vs-all', 'vs-top1', 'vs-all-1']:
             p_nmt = self.get_knn_score(feature)
         return self.knn_datastore.add_datastore(feature, sample['target'], hypo_key=hypo_key, p_nmt=p_nmt, **kwargs)
 

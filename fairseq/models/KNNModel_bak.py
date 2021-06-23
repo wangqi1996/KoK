@@ -15,15 +15,14 @@ faiss.logger.level = logging.WARNING
 
 def whitening_torch_final(embeddings):
     mu = torch.mean(embeddings, dim=0, keepdim=True)
-    cov = torch.mm((embeddings - mu).t(), embeddings - mu)
+    cov = torch.mm((embeddings - mu).t(), embeddings - mu)  # (feature dim) * (feature dim)
     u, s, vt = torch.svd(cov)
     W = torch.mm(u, torch.diag(1 / torch.sqrt(s)))
     embeddings = torch.mm(embeddings - mu, W)
-    return embeddings, mu, s, u
+    return embeddings, mu, W
 
 
-def whitening_queries(queries, mu, s, u):
-    W = torch.mm(u, torch.diag(1 / torch.sqrt(s)))
+def whitening_queries(queries, mu, W):
     embeddings = torch.mm(queries - mu, W)
     return embeddings
 
@@ -38,7 +37,7 @@ def calculate_knn_prob(tgt_index: torch.Tensor,  # [B, S, K]
     bsz, seq_len, _ = distance.size()
 
     re_compute_dists = -1 * distance  # [B, S, K]
-
+    # print(temperature)
     scaled_dists = re_compute_dists / temperature
     knn_weight = torch.softmax(scaled_dists, dim=-1).unsqueeze(-1)  # [B, S, K, 1]
 
@@ -77,7 +76,10 @@ class KNNDatastore(object):
         self.max_lambda = getattr(args, "max_lambda", 0.3)
         self.distance_threshold = getattr(args, "distance_threshold", -1)
 
-        self.whitening = "none"
+        self.whitening = getattr(args, "whitening", "none")
+        self.whitening_method = getattr(args, "whitening_method", 'svd')
+        if self.whitening != "none":
+            self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
 
     def get_index_dim(self, args):
         return args.decoder_embed_dim
@@ -103,10 +105,13 @@ class KNNDatastore(object):
         parser.add_argument("--distance-threshold", type=float, default=-1)
 
         parser.add_argument('--whitening', type=str, default="none")  # retrieve, datastore
-        parser.add_argument('--label-temperature-value', type=float, default=10)
+        parser.add_argument('--whitening-method', type=str, default="svd")
 
         from fairseq.models.KNNModel_bak import FixKNNDatastore
         FixKNNDatastore.add_args(parser)
+
+        from fairseq.models.KNNModel import LabelTokenDatastore
+        LabelTokenDatastore.add_args(parser)
 
     def get_dstore_size(self, task=None, **kwargs):
         return task.datasets['train'].tgt.sizes.sum() + 2
@@ -142,10 +147,14 @@ class KNNDatastore(object):
         return self.lambda_value
 
     def retrieve(self, queries):
-        if self.index.ntotal <= self.k:
+        if self.index.ntotal < self.k:
             return {'distance': None, 'knn_index': None, 'tgt_index': None}
 
         bsz, seq_len, q_dim = queries.size()
+        if self.whitening == "datastore":
+            batch_size, seq_len, q_dim = queries.size()
+            queries = self.whitening_method.whitening_queries(queries.view(-1, q_dim))
+            queries = queries.view(batch_size, seq_len, q_dim)
 
         k = min(self.k, self.index.ntotal)
         dists, knns = self.index.search(queries.view(-1, q_dim).contiguous(), k)
@@ -186,9 +195,9 @@ class KNNDatastore(object):
         self.vals[self.val_index: self.val_index + _len] = value.unsqueeze(-1)
         if self.whitening == "datastore":
             self.key[self.val_index: self.val_index + _len] = key  # 存储未变化前的数值
-            key, self.mu, self.s, self.u = whitening_torch_final(
-                self.key[: self.val_index + _len])
-            key = key[self.val_index: self.val_index + _len]
+            key = self.whitening_method.whitening(self.key[: self.val_index + _len])
+            # clear the datastore and store the new value
+            self.index.reset()
 
         self.val_index += _len
         self.index.add(key)

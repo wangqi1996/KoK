@@ -4,7 +4,8 @@ import faiss.contrib.torch_utils
 import torch
 
 from fairseq.models.CombinationMethod import get_combination_class
-from fairseq.models.KNNModel_bak import KNNDatastore, DynamicD, whitening_queries
+from fairseq.models.KNNModel_bak import KNNDatastore, DynamicD
+from fairseq.models.whitening_util import get_whitening_method
 
 faiss.logger.level = logging.WARNING
 
@@ -43,9 +44,12 @@ class LabelDatastore(KNNDatastore):
         super(LabelDatastore, self).__init__(args, task, **kwargs)
 
         self.temperature = args.label_temperature_value
-        self.whitening = getattr(args, "whitening", "none")
+
+        self.whitening = getattr(args, "label_whitening", "none")
+        self.whitening_method = getattr(args, "label_whitening_method", 'svd')
         if self.whitening != "none":
             self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
+            self.whitening_method = get_whitening_method(self.whitening_method)
 
     def get_index_dim(self, args):
         feature_num = 0
@@ -86,10 +90,6 @@ class LabelDatastore(KNNDatastore):
         if token_knn is not None and token_knn['distance'] is not None:
             queries = self.extract_feature(token_knn, search=True, keepdim=True)
 
-            if self.whitening == "datastore":
-                q_dim = queries.size(-1)
-                queries = whitening_queries(queries.view(-1, q_dim), self.mu, self.s, self.u)
-
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
             result['score'] = result['score'][:, :, 1].unsqueeze(-1)  # 取出使用knn的p。
@@ -102,7 +102,6 @@ class LabelDatastore(KNNDatastore):
 class LabelTokenDatastore(object):
     def __init__(self, args, task, **kwargs):
         self.token_datastore = KNNDatastore(args, task)
-        self.token_datastore.temperature = 10
         self.label_datastore = LabelDatastore(args, task, vocab_size=2, token_datastore=self.token_datastore)
 
     def retrieve_and_score(self, queries, **kwargs):
@@ -125,6 +124,10 @@ class LabelTokenDatastore(object):
         parser.add_argument('--save-label-datastore', action="store_true")
         parser.add_argument('--compute-label-accuracy', action="store_true")
 
+        parser.add_argument('--label-whitening', type=str, default="none")
+        parser.add_argument('--label-whitening-method', type=str, default="svd")
+        parser.add_argument('--label-temperature-value', type=float, default=10)
+
     def get_normalized_probs(
             self,
             logits,
@@ -143,9 +146,9 @@ class LabelTokenDatastore(object):
             retrieve_tokens = retrieve_tokens.squeeze(-1)
             label_value = self.label_datastore.extract_value(retrieve_tokens=retrieve_tokens,
                                                              reference=value, p_nmt=kwargs.get('p_nmt', None),
-                                                             knn_result=knn_result)
+                                                             knn_result=knn_result)[:-1]
 
-            label_key = self.label_datastore.extract_feature(knn_result)
+            label_key = self.label_datastore.extract_feature(knn_result)[:-1, :]
 
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
 
@@ -178,3 +181,45 @@ class LabelTokenDatastore(object):
     #     self.label_filename = os.path.join('/home/data_ti5_c/wangdq/code/knn-mt/label_accuracy/', f)
     #     with open(self.filename, 'w'):
     #         pass
+
+# class SingleDatastore(LabelTokenDatastore):
+#     def get_normalized_probs(
+#             self,
+#             logits,
+#             log_probs,
+#             **extra
+#     ):
+#         pass
+#
+#     def retrieve_and_score(self, queries, **kwargs):
+#         token_result = self.token_datastore.retrieve_and_score(queries, **kwargs)
+#         token_score, token_lambda = token_result['score'], token_result['lambda']
+#
+#         label_result = self.label_datastore_retrieve_and_score(queries, token_knn=token_result, **kwargs)
+#         label_score = label_result['score']
+#
+#         return {"score": token_score, "lambda": label_score}
+#
+#     def token_datastore_retrieve_and_score(self, queries):
+#         knn_result = self.token_datastore.retrieve(queries)
+#
+#         knn_distance = knn_result['distance']
+#         if knn_distance is None:
+#             return {"score": 0, "lambda": 0, "distance": None, "index": None}
+#
+#         knn_index, tgt_index = knn_result['knn_index'], knn_result['tgt_index']
+#
+#         knn_lambda = self.token_datastore.get_lambda(distance=knn_distance)
+#         knn_score = scatter(src=knn_weight.float(), out=knn_tgt_prob, index=tgt_index, dim=-1)
+#         return {
+#             "score": knn_score,
+#             "lambda": knn_lambda,
+#             "distance": knn_distance,
+#             "tgt_index": tgt_index.squeeze(-1)
+#         }
+#
+#     def label_datastore_retrieve_and_score(self):
+#         """
+#         return:
+#         """
+#         pass
