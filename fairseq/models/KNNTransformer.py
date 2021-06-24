@@ -28,6 +28,7 @@ class KNNTransformerDecoder(TransformerDecoder):
             alignment_heads: Optional[int] = None,
             src_lengths: Optional[Any] = None,
             return_all_hiddens: bool = False,
+            reference=None
     ):
         x, extra = self.extract_features(
             prev_output_tokens,
@@ -37,7 +38,7 @@ class KNNTransformerDecoder(TransformerDecoder):
             alignment_layer=alignment_layer,
             alignment_heads=alignment_heads,
         )
-        knn_result = self.knn_datastore.retrieve_and_score(x)
+        knn_result = self.knn_datastore.retrieve_and_score(x, reference=reference)
         if not features_only:
             x = self.output_layer(x)
         return x, extra, knn_result
@@ -47,10 +48,11 @@ class KNNTransformerDecoder(TransformerDecoder):
             net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]],
             log_probs: bool,
             sample: Optional[Dict[str, Tensor]] = None,
+            **kwargs
     ):
         logits = net_output[0]
         knn_result = net_output[2]
-        score = self.knn_datastore.get_normalized_probs(logits, log_probs, knn_result=knn_result)
+        score = self.knn_datastore.get_normalized_probs(logits, log_probs, knn_result=knn_result, **kwargs)
         return score
 
     def get_knn_score(self, feature):

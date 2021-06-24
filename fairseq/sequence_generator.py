@@ -3,9 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
-import math
 from typing import Dict, List, Optional
 
+import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -230,7 +230,7 @@ class SequenceGenerator(nn.Module):
                 int(self.max_len_a * src_len + self.max_len_b),
                 # exclude the EOS marker
                 self.model.max_decoder_positions() - 1,
-                )
+            )
         assert (
                 self.min_len <= max_len
         ), "min_len cannot be larger than max_len, please adjust these!"
@@ -475,7 +475,7 @@ class SequenceGenerator(nn.Module):
             active_mask = torch.add(
                 eos_mask.type_as(cand_offsets) * cand_size,
                 cand_offsets[: eos_mask.size(1)],
-                )
+            )
 
             # get the top beam_size active hypotheses, which are just
             # the hypos with the smallest values in active_mask.
@@ -822,6 +822,7 @@ class EnsembleModel(nn.Module):
             encoder_outs: List[EncoderOut],
             incremental_states: List[Dict[str, Dict[str, Optional[Tensor]]]],
             temperature: float = 1.0,
+            **kwargs
     ):
         log_probs = []
         avg_attn: Optional[Tensor] = None
@@ -837,6 +838,7 @@ class EnsembleModel(nn.Module):
                     tokens,
                     encoder_out=encoder_out,
                     incremental_state=incremental_states[i],
+                    **kwargs
                 )
             else:
                 decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
@@ -860,7 +862,7 @@ class EnsembleModel(nn.Module):
                                 ) + decoder_out[1:]
 
             probs = model.get_normalized_probs(
-                decoder_out_tuple, log_probs=True, sample=None
+                decoder_out_tuple, log_probs=True, sample=None, **kwargs
             )
             probs = probs[:, -1, :]
             if self.models_size == 1:

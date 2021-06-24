@@ -156,8 +156,7 @@ class KNNDatastore(object):
             queries = self.whitening_method.whitening_queries(queries.view(-1, q_dim))
             queries = queries.view(batch_size, seq_len, q_dim)
 
-        k = min(self.k, self.index.ntotal)
-        dists, knns = self.index.search(queries.view(-1, q_dim).contiguous(), k)
+        dists, knns = self.index.search(queries.view(-1, q_dim).contiguous(), self.k)
 
         tgt_idx = self.vals[knns].to(queries.device).squeeze(-1)
         tgt_idx = tgt_idx.view(bsz, seq_len, -1)
@@ -218,12 +217,30 @@ class KNNDatastore(object):
             self,
             logits,
             log_probs,
+            reference=None,
             **extra
     ):
         logits = utils.softmax(logits, dim=-1, onnx_trace=False)
         knn_result = extra['knn_result']
         knn_lambda, knn_score = knn_result["lambda"], knn_result['score']
         score = logits * (1 - knn_lambda) + knn_score * knn_lambda
+
+        # # 计算reference的准确率
+        # if isinstance(knn_lambda, torch.Tensor):
+        #     batch_size, seq_len, vocab_size = logits.shape
+        #     p_nmt = logits.view(-1, vocab_size)
+        #     p_nmt_max, p_nmt_token = p_nmt.max(-1)
+        #     p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
+        #     p_knn = knn_score.view(-1, vocab_size).gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
+        #     value_1 = p_knn > p_nmt
+        #     lambda_1 = knn_lambda[value_1].sum().item()
+        #     count_1 = value_1.long().sum().item()
+        #     lambda_0 = knn_lambda[~value_1].sum().item()
+        #     count_0 = (~value_1).long().sum().item()
+        #     set_key_value("lambda_1", lambda_1)
+        #     set_key_value("lambda_0", lambda_0)
+        #     set_key_value("count_1", count_1)
+        #     set_key_value("count_0", count_0)
 
         if log_probs:
             score = torch.log(score)

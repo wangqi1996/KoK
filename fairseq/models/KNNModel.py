@@ -91,7 +91,7 @@ class LabelDatastore(KNNDatastore):
         """ token_knn=None  => directly input queries"""
         if token_knn is not None and token_knn['distance'] is not None:
             queries = self.extract_feature(token_knn, search=True, keepdim=True)
-
+            # pdb.set_trace()
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
             result['score'] = result['score'][:, :, 1].unsqueeze(-1)  # 取出使用knn的p。
@@ -114,7 +114,13 @@ class LabelTokenDatastore(object):
         token_score, token_lambda = token_result['score'], token_result['lambda']
 
         label_result = self.label_datastore.retrieve_and_score(queries, token_knn=token_result, **kwargs)
-        label_score = label_result['score'] * 0.5
+        label_score = label_result['score']
+
+        # # 计算lambda的均值
+        # if isinstance(label_score, torch.Tensor):
+        #     batch_size, seq_len, K = label_score.size()
+        #     set_key_value("lambda_count", batch_size * seq_len * K)
+        #     set_key_value("lambda_sum", label_score.sum().item())
 
         return {"score": token_score, "lambda": label_score}
 
@@ -157,11 +163,12 @@ class LabelTokenDatastore(object):
 
             label_key = self.label_datastore.extract_feature(knn_result)
 
-            # mask
-            value_mask = label_value != -1
-            label_key = label_key[value_mask]
-            label_value = label_value[value_mask]
-
+            # # mask
+            # value_mask = label_value != -1
+            # label_key = label_key[value_mask]
+            # label_value = label_value[value_mask]
+            # print(label_key)
+            # pdb.set_trace()
             self.label_datastore.add_key(label_key)
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
 

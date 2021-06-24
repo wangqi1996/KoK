@@ -50,6 +50,6 @@ def combina(baseline_file, knn_file):
 
 
 if __name__ == '__main__':
-    base_file = "/home/wangdq/output/case/generate-train.txt"
-    knn_file = "/home/wangdq/output/case2/generate-train.txt"
+    base_file = "/home/wangdq/output/b1-nond/generate-train.txt"
+    knn_file = "/home/wangdq/output/b1-d/generate-train.txt"
     combina(base_file, knn_file)

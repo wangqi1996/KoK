@@ -10,20 +10,19 @@ import importlib
 import logging
 import os
 import sys
-import tempfile
 import warnings
 from itertools import accumulate
 from typing import Callable, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor
+
 from fairseq.data import iterators
 from fairseq.file_io import PathManager
 from fairseq.logging.meters import safe_round
 from fairseq.modules import gelu, gelu_accurate
 from fairseq.modules.multihead_attention import MultiheadAttention
-from torch import Tensor
-
 
 try:
     from amp_C import multi_tensor_l2norm
@@ -32,9 +31,7 @@ try:
 except ImportError:
     multi_tensor_l2norm_available = False
 
-
 logger = logging.getLogger(__name__)
-
 
 MANIFOLD_PATH_SEP = "|"
 
@@ -118,19 +115,19 @@ def move_to_cpu(sample):
 
 
 def get_incremental_state(
-    module: MultiheadAttention,
-    incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
-    key: str,
+        module: MultiheadAttention,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        key: str,
 ) -> Optional[Dict[str, Optional[Tensor]]]:
     """Helper for getting incremental state for an nn.Module."""
     return module.get_incremental_state(incremental_state, key)
 
 
 def set_incremental_state(
-    module: MultiheadAttention,
-    incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
-    key: str,
-    value: Dict[str, Optional[Tensor]],
+        module: MultiheadAttention,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        key: str,
+        value: Dict[str, Optional[Tensor]],
 ) -> Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
     """Helper for setting incremental state for an nn.Module."""
     if incremental_state is not None:
@@ -210,13 +207,13 @@ def replace_unk(hypo_str, src_str, alignment, align_dict, unk):
 
 
 def post_process_prediction(
-    hypo_tokens,
-    src_str,
-    alignment,
-    align_dict,
-    tgt_dict,
-    remove_bpe=None,
-    extra_symbols_to_ignore=None,
+        hypo_tokens,
+        src_str,
+        alignment,
+        align_dict,
+        tgt_dict,
+        remove_bpe=None,
+        extra_symbols_to_ignore=None,
 ):
     hypo_str = tgt_dict.string(
         hypo_tokens, remove_bpe, extra_symbols_to_ignore=extra_symbols_to_ignore
@@ -259,7 +256,7 @@ def buffered_arange(max):
 
 
 def convert_padding_direction(
-    src_tokens, padding_idx, right_to_left: bool = False, left_to_right: bool = False
+        src_tokens, padding_idx, right_to_left: bool = False, left_to_right: bool = False
 ):
     assert right_to_left ^ left_to_right
     pad_mask = src_tokens.eq(padding_idx)
@@ -699,3 +696,21 @@ def eval_bool(x, default=False):
         return bool(eval(x))
     except TypeError:
         return default
+
+
+def init_global():
+    global KEY_VALUE
+    KEY_VALUE = {}
+
+
+def set_key_value(k, v):
+    global KEY_VALUE
+    vv = KEY_VALUE.get(k, 0)
+    KEY_VALUE[k] = v + vv
+
+
+def get_key_value():
+    global KEY_VALUE
+    # print(KEY_VALUE.get('lambda_sum', 0) / KEY_VALUE.get('lambda_count', 1))
+    print(KEY_VALUE.get('lambda_1', 0) / KEY_VALUE.get('count_1', 1))
+    print(KEY_VALUE.get('lambda_0', 0) / KEY_VALUE.get('count_0', 1))

@@ -3,9 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
+import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -305,9 +305,10 @@ class TransformerModel(FairseqEncoderDecoderModel):
             net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]],
             log_probs: bool,
             sample: Optional[Dict[str, Tensor]] = None,
+            **kwargs,
     ):
         """Get normalized probabilities (or log probs) from a net's output."""
-        return self.get_normalized_probs_scriptable(net_output, log_probs, sample)
+        return self.get_normalized_probs_scriptable(net_output, log_probs, sample, **kwargs)
 
 
 class TransformerEncoder(FairseqEncoder):

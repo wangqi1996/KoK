@@ -20,6 +20,7 @@ import torch
 from fairseq import checkpoint_utils, options, scoring, tasks, utils
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
+from fairseq.utils import init_global, get_key_value
 
 
 def main(args):
@@ -50,6 +51,8 @@ def get_symbols_to_strip_from_output(generator):
 
 
 def _main(args, output_file):
+    init_global()
+
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -343,6 +346,7 @@ def _main(args, output_file):
             sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
         )
 
+    get_key_value()
     logger.info("NOTE: hypothesis and token scores are output in base 2")
     logger.info(
         "Translated {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)".format(
