@@ -14,9 +14,7 @@ python $PROJECT_PATH/fairseq_cli/knn_generate.py $DATA_PATH \
   --batch-size 1 \
   --tokenizer moses --remove-bpe \
   --results-path $OUTPUT_PATH \
-  --model-overrides "{'k': 8, 'lambda_value': $5, 'temperature_value': 10, 'label_temperature_value': 1,
-  'arch': 'knn_transformer_wmt19', 'knn_type': 'label-datastore',
-  'combination_method': 'flat', 'label_count':True,  'distance': True, 'value_method': 'vs-all',
-  'label_whitening': 'datastore',}"
+  --model-overrides "{'k': 8, 'lambda_value': 0.3, 'temperature_value': 10, 'label_temperature_value': 10, 'arch': 'knn_transformer_wmt19',
+'knn_type': 'label-datastore', 'combination_method': 'relative-flat2', 'label_count':True,  'distance': True, 'value_method': 'vs-all',}"
 
 tail -1 $OUTPUT_PATH/generate-$split.txt

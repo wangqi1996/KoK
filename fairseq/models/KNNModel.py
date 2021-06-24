@@ -51,6 +51,8 @@ class LabelDatastore(KNNDatastore):
             self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
             self.whitening_method = get_whitening_method(self.whitening_method)
 
+        self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
+
     def get_index_dim(self, args):
         feature_num = 0
         if self.label_count:
@@ -98,6 +100,9 @@ class LabelDatastore(KNNDatastore):
             result['score'].masked_fill_(score_mask, 0.99)
         return result
 
+    def add_key(self, key):
+        self.key[self.val_index: self.val_index + key.size(0)] = key
+
 
 class LabelTokenDatastore(object):
     def __init__(self, args, task, **kwargs):
@@ -109,7 +114,7 @@ class LabelTokenDatastore(object):
         token_score, token_lambda = token_result['score'], token_result['lambda']
 
         label_result = self.label_datastore.retrieve_and_score(queries, token_knn=token_result, **kwargs)
-        label_score = label_result['score']
+        label_score = label_result['score'] * 0.5
 
         return {"score": token_score, "lambda": label_score}
 
@@ -139,21 +144,32 @@ class LabelTokenDatastore(object):
     def add_datastore(self, key, value, **kwargs):
         knn_result = self.token_datastore.retrieve(key)  # [B, S, K]
         retrieve_tokens = knn_result['tgt_index']
+        p_nmt = kwargs.get('p_nmt', None)
+
         if retrieve_tokens is not None and retrieve_tokens.size(-1) == self.token_datastore.k:
             mask = self.token_datastore.get_add_mask(value, **kwargs)
             assert (~mask).long().sum() == 0  # b=1, no invalid token  ==>  don't mask the label key and  label value,
 
             retrieve_tokens = retrieve_tokens.squeeze(-1)
             label_value = self.label_datastore.extract_value(retrieve_tokens=retrieve_tokens,
-                                                             reference=value, p_nmt=kwargs.get('p_nmt', None),
-                                                             knn_result=knn_result)[:-1]
+                                                             reference=value, p_nmt=p_nmt,
+                                                             knn_result=knn_result)
 
-            label_key = self.label_datastore.extract_feature(knn_result)[:-1, :]
+            label_key = self.label_datastore.extract_feature(knn_result)
 
+            # mask
+            value_mask = label_value != -1
+            label_key = label_key[value_mask]
+            label_value = label_value[value_mask]
+
+            self.label_datastore.add_key(label_key)
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
 
         # first add label datastore, then add token datastore
-        self.token_datastore.add_datastore(key, value, **kwargs)
+        # error = (p_nmt.argmax(-1) != value)
+        # key = key[error]
+        # value = value[error]
+        self.token_datastore.add_mask_value(key.view(-1, key.size(-1)), value.view(-1))
 
     # def compute_accuracy(self, label_key, label_value):
     #     result = self.label_datastore.retrieve_and_score(label_key, token_knn=None)

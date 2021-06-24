@@ -230,7 +230,7 @@ class SequenceGenerator(nn.Module):
                 int(self.max_len_a * src_len + self.max_len_b),
                 # exclude the EOS marker
                 self.model.max_decoder_positions() - 1,
-            )
+                )
         assert (
                 self.min_len <= max_len
         ), "min_len cannot be larger than max_len, please adjust these!"
@@ -475,7 +475,7 @@ class SequenceGenerator(nn.Module):
             active_mask = torch.add(
                 eos_mask.type_as(cand_offsets) * cand_size,
                 cand_offsets[: eos_mask.size(1)],
-            )
+                )
 
             # get the top beam_size active hypotheses, which are just
             # the hypos with the smallest values in active_mask.

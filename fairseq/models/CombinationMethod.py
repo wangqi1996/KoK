@@ -143,15 +143,23 @@ class Flat(CombinationMethod):
             """ p_knn(y_t) vs p_nmt(y_t) """
             batch_size, seq_len, vocab_size = p_nmt.shape
             p_nmt = p_nmt.view(-1, vocab_size)
+            p_nmt_max, p_nmt_token = p_nmt.max(-1)
             p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
 
             p_knn = self.token_datastore.get_score(knn_result)['score']
             p_knn = p_knn.view(-1, vocab_size)
             p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
             value = (p_nmt < p_knn).long()
+
             if self.value_method == VSALL1:
-                mask = (reference == retrieve_tokens[:, :, 0]).view(value.shape)
-                value.masked_fill_(~mask, 0)
+                # mask = (reference == retrieve_tokens[:, :, 0]).view(value.shape)
+                # value.masked_fill_(~mask, 0)
+                p_nmt_token = p_nmt_token.view(-1)
+                value_1 = ((p_nmt_token != reference) & (p_knn > p_nmt)).view(-1)
+                value_0 = ((p_nmt_token == reference) & (retrieve_tokens[:, :, 0] != reference)).view(-1)
+                value.fill_(-1)
+                value.masked_fill_(value_0, 0)
+                value.masked_fill_(value_1, 1)
 
         return value.view(-1)
 

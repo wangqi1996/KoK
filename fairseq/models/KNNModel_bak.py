@@ -285,16 +285,21 @@ class FixKNNDatastore(KNNDatastore):
 
 
 class PositiveDatastore(KNNDatastore):
-    def get_add_mask(self, value, **kwargs):
-        reference, hypos = value, kwargs['hypo_value']
-        positive_mask = reference.new_zeros(reference.shape).fill_(False).bool()
-        batch_size, seq_len = reference.shape
+    # def get_add_mask(self, value, **kwargs):
+    #     reference, hypos = value, kwargs['hypo_value']
+    #     positive_mask = reference.new_zeros(reference.shape).fill_(False).bool()
+    #     batch_size, seq_len = reference.shape
+    #
+    #     for b in range(batch_size):
+    #         for i in range(seq_len):
+    #             if reference[b][i] != self.padding_idx and reference[b][i] not in hypos[b]:
+    #                 positive_mask[b][i] = True
+    #     return positive_mask
 
-        for b in range(batch_size):
-            for i in range(seq_len):
-                if reference[b][i] != self.padding_idx and reference[b][i] not in hypos[b]:
-                    positive_mask[b][i] = True
-        return positive_mask
+    def get_add_mask(self, value, **kwargs):
+        p_nmt = kwargs.get('p_nmt', None)
+        error = (p_nmt.argmax(-1) != value)
+        return error
 
 
 class PositiveNegativeDatastore(object):

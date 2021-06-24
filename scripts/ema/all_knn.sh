@@ -3,8 +3,7 @@ source scripts/ema/config.sh
 export CUDA_VISIBLE_DEVICES=$1
 
 key=$2
-filedir=$3
-lambda=$4
+lambda=$3
 
 random_seed=$RANDOM
 ref="/home/wangdq/output/ref.$random_seed.txt"
