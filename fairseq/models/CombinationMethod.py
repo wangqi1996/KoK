@@ -1,7 +1,17 @@
 import torch
 
 RELATIVE_FLAT = "relative-flat"
+
+# key=[d1, r2, r2, ...,rk, c2, c3, ..., ck] or key=[r2, r2, ...,rk, c2, c3, ..., ck]
 FLAT = "flat"
+
+# key=[d1]
+TOP1DABS = "top1-d-abs"
+# key=[d1, d2, ..., dk]
+DISABS = "dis-abs"
+# key=[d1, d2, ..., dk] + W
+DISWABS = "dis-w-abs"
+
 TOP1_ALL = "top1-all"
 TOP1_TOP1 = "top1-top1"
 RELATIVE_FLAT2 = 'relative-flat2'
@@ -9,6 +19,7 @@ RELATIVE_FLAT2 = 'relative-flat2'
 FLAT_LIST = [RELATIVE_FLAT, FLAT, RELATIVE_FLAT2]
 TOP1_LIST = [TOP1_ALL, TOP1_TOP1]
 
+""" value method"""
 INALL = 'in-all'
 INTOP1 = 'in-top1'
 VSALL = 'vs-all'
@@ -22,7 +33,18 @@ def get_combination_class(method, k, value_method, token_datastore):
     if method == RELATIVE_FLAT2:
         return Flat(k, value_method, token_datastore, relative_distance=True, append_distance=True)
     if method == FLAT:
-        return Flat(k, value_method, token_datastore, relative_distance=False, append_distance=False)
+        return Flat(k, value_method, token_datastore)
+
+    # key = [d1]
+    if method == TOP1DABS:
+        return Top1DAbsolute(k, value_method, token_datastore)
+
+    # key = [d1, d2, ... , dk]
+    if method == DISABS:
+        return DisAbsolute(k, value_method, token_datastore, weight=False)
+    if method == DISWABS:
+        return DisAbsolute(k, value_method, token_datastore, weight=True)
+
     if method == TOP1_ALL:
         return Top1(k, value_method, token_datastore, store_all=True)
     if method == TOP1_TOP1:
@@ -89,16 +111,18 @@ class Flat(CombinationMethod):
 
     def __init__(self, k, value_method, token_datastore, relative_distance=True, append_distance=False):
         super(Flat, self).__init__(k, value_method, token_datastore)
+        assert relative_distance
         self.relative_distance = relative_distance
         self.append_distance = append_distance
-        self.distance_dim = k
-        self.label_count_dim = k
+        self.distance_dim = k - 1
+        self.label_count_dim = k - 1
 
     def get_index_dim(self, k, feature_num, **kwargs):
         dim = k * feature_num
         if self.append_distance:
             dim += 1
             self.distance_dim += 1
+        dim -= feature_num  # remove  d0 r0
         return dim
 
     def get_datastore_size(self, sen_size, k, **kwargs):
@@ -106,6 +130,8 @@ class Flat(CombinationMethod):
 
     def get_distance_feature(self, distance, **kwargs):
         """ distance: [batch, seq_len, K] """
+
+        top_distance = None
         if self.append_distance:
             top_distance = distance[:, :, 0].unsqueeze(-1)
 
@@ -113,6 +139,7 @@ class Flat(CombinationMethod):
             distance_mask = distance == 0
             distance.masked_fill_(distance_mask, 1e-6)
             distance = distance / distance[:, :, 0].unsqueeze(-1)
+            distance = distance[:, :, 1:]  # remove the r1 == 1
 
         if self.append_distance:
             distance = torch.cat((top_distance, distance), dim=-1)
@@ -121,6 +148,7 @@ class Flat(CombinationMethod):
 
     def get_label_count(self, retrieve_tgt_index, **kwargs):
         label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+        label_count = label_count[:, :, 1:]
         return label_count.view(-1, self.label_count_dim)
 
     def extract_value(self, retrieve_tokens, reference, p_nmt=None, knn_result=None, **kwargs):
@@ -143,7 +171,6 @@ class Flat(CombinationMethod):
             """ p_knn(y_t) vs p_nmt(y_t) """
             batch_size, seq_len, vocab_size = p_nmt.shape
             p_nmt = p_nmt.view(-1, vocab_size)
-            p_nmt_max, p_nmt_token = p_nmt.max(-1)
             p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
 
             p_knn = self.token_datastore.get_score(knn_result)['score']
@@ -151,94 +178,111 @@ class Flat(CombinationMethod):
             p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
             value = (p_nmt < p_knn).long()
 
-            if self.value_method == VSALL1:
-                # mask = (reference == retrieve_tokens[:, :, 0]).view(value.shape)
-                # value.masked_fill_(~mask, 0)
-                p_nmt_token = p_nmt_token.view(-1)
-                value_1 = ((p_nmt_token != reference) & (p_knn > p_nmt)).view(-1)
-                value_0 = ((p_nmt_token == reference) & (retrieve_tokens[:, :, 0] != reference)).view(-1)
-                value.fill_(-1)
-                value.masked_fill_(value_0, 0)
-                value.masked_fill_(value_1, 1)
-
         return value.view(-1)
 
 
-class Top1(CombinationMethod):
-    def __init__(self, k, value_method, token_datastore, store_all=False):
-        super(Top1, self).__init__(k, value_method, token_datastore)
-        self.store_all = store_all
-        self.distance_dim = 1
-        self.label_count_dim = 1
+class Top1DAbsolute(Flat):
+    def get_index_dim(self, k, feature_num, **kwargs):
+        return 1
+
+    def get_distance_feature(self, distance, **kwargs):
+        top_distance = distance[:, :, 0]
+        return top_distance.view(-1, 1)
+
+
+class DisAbsolute(Flat):
+    def __init__(self, k, value_method, token_datastore, relative_distance=True, append_distance=False, weight=False):
+        super().__init__(k, value_method, token_datastore, relative_distance, append_distance)
+
+        self.weight = weight
+        if self.weight:
+            self.W = torch.Tensor([1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64, 1 / 128, 1 / 128]).unsqueeze(0)
 
     def get_index_dim(self, k, feature_num, **kwargs):
-        return feature_num
+        self.distance_dim = k
+        return k
 
-    def get_datastore_size(self, sen_size, k, **kwargs):
-        if self.store_all:
-            return sen_size * k + 10
-        return sen_size + 10
+    def get_distance_feature(self, distance, **kwargs):
+        feature = distance.view(-1, self.distance_dim)
+        if self.weight:
+            feature = feature * (self.W.to(feature))
+        return feature
 
-    def get_distance_feature(self, distance, search=False):
-        """
-        distance: [batch, seq_len, K]
-        search: when retrieve, we only need return the top distance.
-        """
-        store_all = self.store_all and not search
-        if not store_all:
-            distance = distance[:, :, 0].unsqueeze(-1)
-        return distance.view(-1, self.distance_dim)
-
-    def get_label_count(self, retrieve_tgt_index, search=False, **kwargs):
-        label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
-        store_all = self.store_all and not search
-        if not store_all:
-            label_count = label_count[:, :, 0]
-        return label_count.view(-1, self.label_count_dim)
-
-    def extract_value(self, retrieve_tokens, reference, p_nmt=None, knn_result=None, **kwargs):
-        """ call when save datastore.
-        1. y_t == t_i
-        2.
-        """
-        assert self.value_method != INALL
-        if self.value_method == INTOP1:
-            if self.store_all:
-                """ y_t == t_i """
-                value = (retrieve_tokens == reference.unsqueeze(-1)).long()
-            else:
-                """y_t == t_0"""
-                value = (retrieve_tokens[:, :, 0] == reference).long()
-            return value.view(-1)
-
-        batch, seq_len, vocab_size = p_nmt.shape
-        p_nmt = p_nmt.view(-1, vocab_size)
-        p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1))
-
-        if self.value_method == VSTOP1:
-            p_knn = self.token_datastore.get_score(knn_result, return_every_k=True)['score']
-            if self.store_all:
-                """ p_knn_i(y_t) vs p_nmt(y_i) """
-                K = p_knn.size(-2)
-                reference = reference.unsqueeze(-1).repeat(1, 1, K)
-                p_nmt = p_nmt.repeat(1, K)
-                p_knn = p_knn.view(-1, vocab_size).gather(-1, reference.view(-1).unsqueeze(-1))
-            else:
-                """ p_knn_0(y_t) vs p_nmt(y_i) """
-                p_knn = p_knn[:, :, 0, :].view(-1, vocab_size)
-                p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1))
-            value = (p_nmt.view(-1, 1) < p_knn).long()
-
-        elif self.value_method == VSALL:
-            p_knn = self.token_datastore.get_score(knn_result)['score']
-            p_knn = p_knn.view(-1, vocab_size)
-            p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1))
-            value = (p_nmt.view(-1, 1) < p_knn).long()
-            if self.store_all:
-                K = retrieve_tokens.size(-1)
-                value = value.view(batch, seq_len).unsqueeze(-1).repeat(1, 1, K)
-                value.masked_fill_(reference.unsqueeze(-1) != retrieve_tokens, 0)
-                # only select for top1??
-                # value[:, :, 1:] = False
-
-        return value.view(-1)
+# class Top1(CombinationMethod):
+#     def __init__(self, k, value_method, token_datastore, store_all=False):
+#         super(Top1, self).__init__(k, value_method, token_datastore)
+#         self.store_all = store_all
+#         self.distance_dim = 1
+#         self.label_count_dim = 1
+#
+#     def get_index_dim(self, k, feature_num, **kwargs):
+#         return feature_num
+#
+#     def get_datastore_size(self, sen_size, k, **kwargs):
+#         if self.store_all:
+#             return sen_size * k + 10
+#         return sen_size + 10
+#
+#     def get_distance_feature(self, distance, search=False):
+#         """
+#         distance: [batch, seq_len, K]
+#         search: when retrieve, we only need return the top distance.
+#         """
+#         store_all = self.store_all and not search
+#         if not store_all:
+#             distance = distance[:, :, 0].unsqueeze(-1)
+#         return distance.view(-1, self.distance_dim)
+#
+#     def get_label_count(self, retrieve_tgt_index, search=False, **kwargs):
+#         label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+#         store_all = self.store_all and not search
+#         if not store_all:
+#             label_count = label_count[:, :, 0]
+#         return label_count.view(-1, self.label_count_dim)
+#
+#     def extract_value(self, retrieve_tokens, reference, p_nmt=None, knn_result=None, **kwargs):
+#         """ call when save datastore.
+#         1. y_t == t_i
+#         2.
+#         """
+#         assert self.value_method != INALL
+#         if self.value_method == INTOP1:
+#             if self.store_all:
+#                 """ y_t == t_i """
+#                 value = (retrieve_tokens == reference.unsqueeze(-1)).long()
+#             else:
+#                 """y_t == t_0"""
+#                 value = (retrieve_tokens[:, :, 0] == reference).long()
+#             return value.view(-1)
+#
+#         batch, seq_len, vocab_size = p_nmt.shape
+#         p_nmt = p_nmt.view(-1, vocab_size)
+#         p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1))
+#
+#         if self.value_method == VSTOP1:
+#             p_knn = self.token_datastore.get_score(knn_result, return_every_k=True)['score']
+#             if self.store_all:
+#                 """ p_knn_i(y_t) vs p_nmt(y_i) """
+#                 K = p_knn.size(-2)
+#                 reference = reference.unsqueeze(-1).repeat(1, 1, K)
+#                 p_nmt = p_nmt.repeat(1, K)
+#                 p_knn = p_knn.view(-1, vocab_size).gather(-1, reference.view(-1).unsqueeze(-1))
+#             else:
+#                 """ p_knn_0(y_t) vs p_nmt(y_i) """
+#                 p_knn = p_knn[:, :, 0, :].view(-1, vocab_size)
+#                 p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1))
+#             value = (p_nmt.view(-1, 1) < p_knn).long()
+#
+#         # elif self.value_method == VSALL:
+#         #     p_knn = self.token_datastore.get_score(knn_result)['score']
+#         #     p_knn = p_knn.view(-1, vocab_size)
+#         #     p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1))
+#         #     value = (p_nmt.view(-1, 1) < p_knn).long()
+#         #     if self.store_all:
+#         #         K = retrieve_tokens.size(-1)
+#         #         value = value.view(batch, seq_len).unsqueeze(-1).repeat(1, 1, K)
+#         #         value.masked_fill_(reference.unsqueeze(-1) != retrieve_tokens, 0)
+#         #         # only select for top1??
+#         #         # value[:, :, 1:] = False
+#
+#         return value.view(-1)

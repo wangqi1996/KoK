@@ -11,8 +11,7 @@ faiss.logger.level = logging.WARNING
 
 
 def build_knn_datastore(args, task, **kwargs):
-    from fairseq.models.KNNModel_bak import FixKNNDatastore, PositiveDatastore, PositiveNegativeDatastore, \
-        PosteriorKNNDatastore
+    from fairseq.models.KNNModel_bak import FixKNNDatastore, PositiveDatastore, PositiveNegativeDatastore
     knn_type = args.knn_type
     if knn_type == "normal":
         return KNNDatastore(args, task, )
@@ -22,8 +21,6 @@ def build_knn_datastore(args, task, **kwargs):
         return PositiveDatastore(args, task)
     elif knn_type == "positive-negative":
         return PositiveNegativeDatastore(args, task)
-    elif knn_type == "posterior":
-        return PosteriorKNNDatastore(args, task)
     elif knn_type == "label-datastore":
         return LabelTokenDatastore(args, task)
     elif knn_type == 'dynamic-d':
@@ -45,10 +42,10 @@ class LabelDatastore(KNNDatastore):
 
         self.temperature = args.label_temperature_value
 
+        # normalization
         self.whitening = getattr(args, "label_whitening", "none")
         self.whitening_method = getattr(args, "label_whitening_method", 'svd')
         if self.whitening != "none":
-            self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
             self.whitening_method = get_whitening_method(self.whitening_method)
 
         self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
@@ -79,10 +76,9 @@ class LabelDatastore(KNNDatastore):
             label_count = self.combination.get_label_count(knn_result['tgt_index'], search=search).float()
             feature = label_count if feature is None else torch.cat((feature, label_count), dim=-1)
         if keepdim:
-            knn_dim = feature.size(-1)
-            feature = feature.view(batch_size, seq_len, knn_dim)
+            feature = feature.view(batch_size, seq_len, -1)
 
-        return feature  # [-1, knn_dim]
+        return feature  # [-1, dim] or [batch, seq_len, dim]
 
     def extract_value(self, retrieve_tokens, reference, **kwargs):
         return self.combination.extract_value(retrieve_tokens, reference, **kwargs)  # [-1, knn_dim]
@@ -94,7 +90,7 @@ class LabelDatastore(KNNDatastore):
             # pdb.set_trace()
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
-            result['score'] = result['score'][:, :, 1].unsqueeze(-1)  # 取出使用knn的p。
+            result['score'] = result['score'][:, :, 1].unsqueeze(-1)
             # 1.0 --> 0.99, else, log(0)
             score_mask = result['score'] > 0.99
             result['score'].masked_fill_(score_mask, 0.99)
@@ -163,19 +159,9 @@ class LabelTokenDatastore(object):
 
             label_key = self.label_datastore.extract_feature(knn_result)
 
-            # # mask
-            # value_mask = label_value != -1
-            # label_key = label_key[value_mask]
-            # label_value = label_value[value_mask]
-            # print(label_key)
-            # pdb.set_trace()
             self.label_datastore.add_key(label_key)
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
 
-        # first add label datastore, then add token datastore
-        # error = (p_nmt.argmax(-1) != value)
-        # key = key[error]
-        # value = value[error]
         self.token_datastore.add_mask_value(key.view(-1, key.size(-1)), value.view(-1))
 
     # def compute_accuracy(self, label_key, label_value):
