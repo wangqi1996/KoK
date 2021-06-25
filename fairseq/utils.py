@@ -10,19 +10,20 @@ import importlib
 import logging
 import os
 import sys
+import tempfile
 import warnings
 from itertools import accumulate
 from typing import Callable, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
-from torch import Tensor
-
 from fairseq.data import iterators
 from fairseq.file_io import PathManager
 from fairseq.logging.meters import safe_round
 from fairseq.modules import gelu, gelu_accurate
 from fairseq.modules.multihead_attention import MultiheadAttention
+from torch import Tensor
+
 
 try:
     from amp_C import multi_tensor_l2norm
@@ -712,5 +713,5 @@ def set_key_value(k, v):
 def get_key_value():
     global KEY_VALUE
     # print(KEY_VALUE.get('lambda_sum', 0) / KEY_VALUE.get('lambda_count', 1))
-    print(KEY_VALUE.get('lambda_1', 0) / KEY_VALUE.get('count_1', 1))
-    print(KEY_VALUE.get('lambda_0', 0) / KEY_VALUE.get('count_0', 1))
+    # print(KEY_VALUE.get('lambda_1', 0) / KEY_VALUE.get('count_1', 1))
+    # print(KEY_VALUE.get('lambda_0', 0) / KEY_VALUE.get('count_0', 1))

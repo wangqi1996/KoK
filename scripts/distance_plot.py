@@ -18,8 +18,6 @@ def read(file):
 
 def distance_plot(file):
     distance, label = read(file)
-    x = [random.randint(0, 100) for _ in range(len(distance))]
-    colors = ['red', 'green', 'blue', 'purple']
 
     l0, l1 = [], []
     for d, l in zip(distance, label):

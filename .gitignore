@@ -13,6 +13,8 @@ __pycache__/
 .DS_Store
 scripts/ema/
 scripts/adaptive/
+examples/
+output/
 # Distribution / packaging
 .Python
 env/
