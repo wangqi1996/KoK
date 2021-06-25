@@ -3,7 +3,6 @@ import os
 
 import faiss
 import faiss.contrib.torch_utils
-import faiss.contrib.torch_utils
 import numpy as np
 import torch
 from torch_scatter import scatter
@@ -11,20 +10,6 @@ from torch_scatter import scatter
 from fairseq import utils
 
 faiss.logger.level = logging.WARNING
-
-
-def whitening_torch_final(embeddings):
-    mu = torch.mean(embeddings, dim=0, keepdim=True)
-    cov = torch.mm((embeddings - mu).t(), embeddings - mu)  # (feature dim) * (feature dim)
-    u, s, vt = torch.svd(cov)
-    W = torch.mm(u, torch.diag(1 / torch.sqrt(s)))
-    embeddings = torch.mm(embeddings - mu, W)
-    return embeddings, mu, W
-
-
-def whitening_queries(queries, mu, W):
-    embeddings = torch.mm(queries - mu, W)
-    return embeddings
 
 
 def calculate_knn_prob(tgt_index: torch.Tensor,  # [B, S, K]
@@ -42,7 +27,7 @@ def calculate_knn_prob(tgt_index: torch.Tensor,  # [B, S, K]
     knn_weight = torch.softmax(scaled_dists, dim=-1).unsqueeze(-1)  # [B, S, K, 1]
 
     knn_tgt_prob = torch.zeros(bsz, seq_len, k, vocab_size).to(distance.device)  # [B, S, K, Vocab Size]
-    tgt_index = tgt_index.unsqueeze_(-1)  # [B, S, K, 1]
+    tgt_index = tgt_index.unsqueeze(-1)  # [B, S, K, 1]
 
     scatter(src=knn_weight.float(), out=knn_tgt_prob, index=tgt_index, dim=-1)
 
@@ -54,9 +39,9 @@ def calculate_knn_prob(tgt_index: torch.Tensor,  # [B, S, K]
     return prob
 
 
-def compute_distance(knn_content, queries):
-    d = (knn_content.float() - queries.float()) ** 2
-    return d.sum(-1).to(queries)
+# def compute_distance(knn_content, queries):
+#     d = (knn_content.float() - queries.float()) ** 2
+#     return d.sum(-1).to(queries)
 
 
 class KNNDatastore(object):
@@ -76,10 +61,11 @@ class KNNDatastore(object):
         self.max_lambda = getattr(args, "max_lambda", 0.3)
         self.distance_threshold = getattr(args, "distance_threshold", -1)
 
-        self.whitening = getattr(args, "whitening", "none")
-        self.whitening_method = getattr(args, "whitening_method", 'svd')
-        if self.whitening != "none":
-            self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
+        self.whitening = "none"
+        # self.whitening = getattr(args, "whitening", "none")
+        # self.whitening_method = getattr(args, "whitening_method", 'svd')
+        # if self.whitening != "none":
+        #     self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
 
     def get_index_dim(self, args):
         return args.decoder_embed_dim
@@ -106,9 +92,9 @@ class KNNDatastore(object):
 
         parser.add_argument('--whitening', type=str, default="none")  # retrieve, datastore
         parser.add_argument('--whitening-method', type=str, default="svd")
-
-        from fairseq.models.KNNModel_bak import FixKNNDatastore
-        FixKNNDatastore.add_args(parser)
+        #
+        # from fairseq.models.KNNModel_bak import FixKNNDatastore
+        # FixKNNDatastore.add_args(parser)
 
         from fairseq.models.KNNModel import LabelTokenDatastore
         LabelTokenDatastore.add_args(parser)
@@ -133,10 +119,10 @@ class KNNDatastore(object):
 
     def get_lambda(self, distance=None, **kwargs):
 
-        if self.linear_lambda:
-            lambda_value = self.index.ntotal / self.dstore_size * (
-                    self.max_lambda - self.min_lambda) + self.min_lambda
-            return lambda_value
+        # if self.linear_lambda:
+        #     lambda_value = self.index.ntotal / self.dstore_size * (
+        #             self.max_lambda - self.min_lambda) + self.min_lambda
+        #     return lambda_value
 
         if self.distance_threshold != -1:
             distance_mask = distance[:, :, 0] > self.distance_threshold
@@ -154,9 +140,10 @@ class KNNDatastore(object):
         if self.whitening == "datastore":
             batch_size, seq_len, q_dim = queries.size()
             queries = self.whitening_method.whitening_queries(queries.view(-1, q_dim))
-            queries = queries.view(batch_size, seq_len, q_dim)
+        else:
+            queries = queries.view(-1, q_dim)
 
-        dists, knns = self.index.search(queries.view(-1, q_dim).contiguous(), self.k)
+        dists, knns = self.index.search(queries.contiguous(), self.k)
 
         tgt_idx = self.vals[knns].to(queries.device).squeeze(-1)
         tgt_idx = tgt_idx.view(bsz, seq_len, -1)
@@ -170,7 +157,7 @@ class KNNDatastore(object):
         if knn_distance is None:
             return {"score": 0, "lambda": 0, "distance": None, "index": None}
 
-        knn_index, tgt_index = knn_result['knn_index'], knn_result['tgt_index']
+        tgt_index = knn_result['tgt_index']
 
         knn_lambda = self.get_lambda(distance=knn_distance)
         knn_score = self.calculate_knn_prob(tgt_index, knn_distance, self.temperature, return_every_k=return_every_k)
@@ -201,16 +188,14 @@ class KNNDatastore(object):
         self.val_index += _len
         self.index.add(key)
 
-    def _add(self, mask, key, value):
+    def add_datastore(self, key, value, **kwargs):
+        mask = self.get_add_mask(value, **kwargs)
         value = value[mask].int()
         key = key[mask].float()
         self.add_mask_value(key, value)
 
-    def add_datastore(self, key, value, **kwargs):
-        mask = self.get_add_mask(value, **kwargs)
-        self._add(mask, key, value)
-
     def get_add_mask(self, value, **kwargs):
+        """ token datastore's mask is padding idx"""
         return value != self.padding_idx
 
     def get_normalized_probs(
@@ -400,5 +385,4 @@ class DynamicD(KNNDatastore):
 
     def add_datastore(self, key, value, **kwargs):
         self.update_distance_threshold(key, value)
-        mask = self.get_add_mask(value, **kwargs)
-        self._add(mask, key, value)
+        super().add_datastore(key, value)

@@ -271,9 +271,8 @@ class SequenceGenerator(nn.Module):
             [torch.jit.annotate(List[Dict[str, Tensor]], []) for i in range(bsz)],
         )  # contains lists of dictionaries of infomation about the hypothesis being finalized at each step
 
-        finished = [
-            False for i in range(bsz)
-        ]  # a boolean array indicating if the sentence at the index is finished or not
+        # a boolean array indicating if the sentence at the index is finished or not
+        finished = [False for i in range(bsz)]
         num_remaining_sent = bsz  # number of sentences remaining
 
         # number of candidate hypos per step

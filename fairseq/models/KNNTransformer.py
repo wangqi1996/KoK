@@ -14,8 +14,8 @@ class KNNTransformerDecoder(TransformerDecoder):
     def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, task=None, **kwargs):
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn)
         self.knn_datastore = build_knn_datastore(args, task)
-        self.knn_type = args.knn_type
-        self.value_method = getattr(args, "value_method", 'equal')
+        # self.knn_type = args.knn_type
+        # self.value_method = getattr(args, "value_method", 'equal')
 
     def forward(
             self,
@@ -38,7 +38,7 @@ class KNNTransformerDecoder(TransformerDecoder):
             alignment_layer=alignment_layer,
             alignment_heads=alignment_heads,
         )
-        knn_result = self.knn_datastore.retrieve_and_score(x, reference=reference)
+        knn_result = self.knn_datastore.retrieve_and_score(x)
         if not features_only:
             x = self.output_layer(x)
         return x, extra, knn_result
@@ -67,24 +67,23 @@ class KNNTransformerDecoder(TransformerDecoder):
         )
 
         hypo_key = None
-        if self.knn_type == "positive-negative":
-            tokens = self.compute_hypos_input(kwargs["hypo_value"])
-            hypo_key, _ = self.extract_features(
-                prev_output_tokens=tokens,
-                encoder_out=encoder_out
-            )
 
-        p_nmt = None
-        if self.knn_type == 'label-datastore' and self.value_method in ['vs-all', 'vs-top1', 'vs-all-1']:
-            p_nmt = self.get_knn_score(feature)
-        return self.knn_datastore.add_datastore(feature, sample['target'], hypo_key=hypo_key, p_nmt=p_nmt, **kwargs)
+        # if self.knn_type == "positive-negative":
+        #     tokens = self.compute_hypos_input(kwargs["hypo_value"])
+        #     hypo_key, _ = self.extract_features(
+        #         prev_output_tokens=tokens,
+        #         encoder_out=encoder_out
+        #     )
 
-    def compute_hypos_input(self, hypo_value):
-        assert hypo_value.size(0) == 1
-        tokens = hypo_value[0].clone()
-        tokens[1:] = hypo_value[0][0:-1]
-        tokens[0] = self.dictionary.eos()
-        return tokens.unsqueeze(0)
+        p_nmt = self.get_knn_score(feature)
+        return self.knn_datastore.add_datastore(feature, sample['target'], p_nmt=p_nmt, **kwargs)
+
+    # def compute_hypos_input(self, hypo_value):
+    #     assert hypo_value.size(0) == 1
+    #     tokens = hypo_value[0].clone()
+    #     tokens[1:] = hypo_value[0][0:-1]
+    #     tokens[0] = self.dictionary.eos()
+    #     return tokens.unsqueeze(0)
 
 
 @register_model("knn_transformer")
