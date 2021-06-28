@@ -3,9 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 import copy
+import math
 from typing import Dict, List, Optional
 
-import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -314,6 +314,7 @@ class SequenceGenerator(nn.Module):
                 encoder_outs,
                 incremental_states,
                 self.temperature,
+                reference=sample['target']
             )
 
             if self.lm_model is not None:
@@ -821,6 +822,7 @@ class EnsembleModel(nn.Module):
             encoder_outs: List[EncoderOut],
             incremental_states: List[Dict[str, Dict[str, Optional[Tensor]]]],
             temperature: float = 1.0,
+            reference=None,
             **kwargs
     ):
         log_probs = []
@@ -837,6 +839,7 @@ class EnsembleModel(nn.Module):
                     tokens,
                     encoder_out=encoder_out,
                     incremental_state=incremental_states[i],
+                    reference=reference,
                     **kwargs
                 )
             else:
@@ -861,7 +864,7 @@ class EnsembleModel(nn.Module):
                                 ) + decoder_out[1:]
 
             probs = model.get_normalized_probs(
-                decoder_out_tuple, log_probs=True, sample=None, **kwargs
+                decoder_out_tuple, log_probs=True, sample=None, tokens=tokens, reference=reference, **kwargs
             )
             probs = probs[:, -1, :]
             if self.models_size == 1:

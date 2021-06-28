@@ -51,51 +51,89 @@ def time_index(times):
 
 
 def recall(file):
-    print("-------------------%s-----------------" % file)
-    bleu = compute_bleu(file)
-
     tok = MosesTokenizer(lang="en")
     max_r = 5  # time_index的个数
-    recall = [0 for _ in range(max_r)]
+    base_recall = [0 for _ in range(max_r)]
+    knn_recall = [0 for _ in range(max_r)]
     all = [0 for _ in range(max_r)]
     stoplist = stopwords.stopwords("en")
     occurrence = {}  # count set  ref
+    content = []
     with open(file) as f:
         ref, hypos = None, None
         for line in f:
-            if line.startswith("T-"):
+            if line.startswith("S-"):
+                content.append(line)
+            elif line.startswith("T-"):
                 ref = list(set(tok.tokenize(' '.join(line.split('\t')[1:]))))
                 id = int(line.split('\t')[0][2:])
                 if id == 0:
                     occurrence = {}
-            elif line.startswith("D-"):
-                hypos = set(tok.tokenize(' '.join(line.split('\t')[2:])))
+                content.append(line)
+            elif line.startswith("base-"):
+                base_hypos = set(tok.tokenize(' '.join(line.split('\t')[2:])))
+                base_line = line
+            elif line.startswith("knn-"):
+                knn_hypos = set(tok.tokenize(' '.join(line.split('\t')[2:])))
+                r0_str = "R0:"
+                base_r0, knn_r0, all_r0 = 0, 0, 0
                 for index, r_token in enumerate(ref):
                     if in_stopwords(r_token, stoplist):
                         continue
                     times = occurrence.get(r_token, 0)
                     occurrence.setdefault(r_token, 0)
                     occurrence[r_token] += 1
+
+                    if times == 0:
+                        r0_str += (" " + r_token)
+                        all_r0 += 1
+
                     t_index = time_index(times)
                     all[t_index] += 1
-                    if r_token in hypos:
-                        recall[t_index] += 1
+                    if r_token in base_hypos:
+                        base_recall[t_index] += 1
+                        base_r0 = base_r0 + 1 if times == 0 else base_r0
+
+                    if r_token in knn_hypos:
+                        knn_recall[t_index] += 1
+                        knn_r0 = knn_r0 + 1 if times == 0 else knn_r0
+                base_r0 = base_r0 / all_r0 if all_r0 != 0 else 0
+                knn_r0 = knn_r0 / all_r0 if all_r0 != 0 else 0
+                if base_r0 > knn_r0:
+                    content.append(r0_str + '\n')
+
+                    base = base_line.split('\t')
+                    base_str = base[0] + "\t" + base[1] + '\t' + "%.2f" % base_r0 + '\t' + base[-1]
+                    content.append(base_str)
+
+                    knn = line.split('\t')
+                    knn_str = knn[0] + "\t" + knn[1] + '\t' + "%.2f" % knn_r0 + '\t' + knn[-1]
+                    content.append(knn_str + '\n')
+                else:
+                    content.pop()
+                    content.pop()
 
                 ref = None
 
-    print(bleu, end="\t")
-    for r, a in zip(recall, all):
+    for r, a in zip(base_recall, all):
+        print("%.2f" % (r / a * 100), end="\t")
+    print()
+    for r, a in zip(knn_recall, all):
         print("%.2f" % (r / a * 100), end="\t")
     print()
     for a in all:
         print(a, end='\t')
     print()
+    with open(file + ".R0", 'w') as f:
+        f.writelines(content)
 
 
 if __name__ == '__main__':
-    import sys
-
-    file = sys.argv[1]
+    # import sys
+    #
+    # file = sys.argv[1]
+    # file = "/home/wangdq/output/output.1457.txt.combina"
+    file = "/home/wangdq/output/output.28793.txt.combina"
     recall(file)
 
 """

@@ -105,6 +105,11 @@ class LabelTokenDatastore(object):
         self.token_datastore = KNNDatastore(args, task)
         self.label_datastore = LabelDatastore(args, task, vocab_size=2, token_datastore=self.token_datastore)
 
+        self.store_lambda = getattr(args, "store_lambda", False)
+        if self.store_lambda:
+            self.filename = "/home/wangdq/lambda-datastore/key.txt"
+            self.filename = open(self.filename, 'a')
+
     def retrieve_and_score(self, queries, **kwargs):
         token_result = self.token_datastore.retrieve_and_score(queries, **kwargs)
         token_score, token_lambda = token_result['score'], token_result['lambda']
@@ -161,8 +166,19 @@ class LabelTokenDatastore(object):
 
             self.label_datastore.add_key(label_key)
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
+            if self.store_lambda:
+                self.save_label_datastore(label_key, label_value)
 
         self.token_datastore.add_mask_value(key.view(-1, key.size(-1)), value.view(-1))
+
+    def save_label_datastore(self, key, value):
+        key = key.cpu().tolist()
+        value = value.cpu().tolist()
+        content = []
+        for k, v in zip(key, value):
+            k = [str(kk) for kk in k]
+            content.append('\t'.join(k) + '\t' + str(v) + '\n')
+        self.filename.writelines(content)
 
     # def compute_accuracy(self, label_key, label_value):
     #     result = self.label_datastore.retrieve_and_score(label_key, token_knn=None)
@@ -194,6 +210,7 @@ class LabelTokenDatastore(object):
 # class SingleDatastore(LabelTokenDatastore):
 #     def get_normalized_probs(
 #             self,
+
 #             logits,
 #             log_probs,
 #             **extra

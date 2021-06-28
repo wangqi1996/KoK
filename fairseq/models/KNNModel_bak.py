@@ -203,6 +203,7 @@ class KNNDatastore(object):
             logits,
             log_probs,
             reference=None,
+            tokens=None,
             **extra
     ):
         logits = utils.softmax(logits, dim=-1, onnx_trace=False)

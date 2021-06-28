@@ -65,9 +65,6 @@ class KNNTransformerDecoder(TransformerDecoder):
             prev_output_tokens=sample['net_input']['prev_output_tokens'],
             encoder_out=encoder_out
         )
-
-        hypo_key = None
-
         # if self.knn_type == "positive-negative":
         #     tokens = self.compute_hypos_input(kwargs["hypo_value"])
         #     hypo_key, _ = self.extract_features(

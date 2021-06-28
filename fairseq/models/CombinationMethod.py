@@ -12,6 +12,17 @@ DISABS = "dis-abs"
 # key=[d1, d2, ..., dk] + W
 DISWABS = "dis-w-abs"
 
+# key=[ck]
+TOPKCABS = "topk-c-abs"
+# key = [c1, c2,...,ck]
+COUNTABS = "count-abs"
+# key = [c1, c2,...,ck] + W
+COUNTWABS = "count-w-abs"
+
+# key=[d1, d2, ...,dk, c1, c2, c3,...,ck]
+DISCOUNTABS = "dis-count-abs"
+DISCOUNTWABS = "dis-count-w-abs"
+
 TOP1_ALL = "top1-all"
 TOP1_TOP1 = "top1-top1"
 RELATIVE_FLAT2 = 'relative-flat2'
@@ -45,10 +56,26 @@ def get_combination_class(method, k, value_method, token_datastore):
     if method == DISWABS:
         return DisAbsolute(k, value_method, token_datastore, weight=True)
 
-    if method == TOP1_ALL:
-        return Top1(k, value_method, token_datastore, store_all=True)
-    if method == TOP1_TOP1:
-        return Top1(k, value_method, token_datastore, store_all=False)
+    # key = [c8]
+    if method == TOPKCABS:
+        return TopKCAbsolute(k, value_method, token_datastore)
+
+    # key = [c1, c2,...,c8]
+    if method == COUNTABS:
+        return CountAbsolute(k, value_method, token_datastore, weight=False)
+    if method == COUNTWABS:
+        return CountAbsolute(k, value_method, token_datastore, weight=True)
+
+    # key=[d1, d2, ...,dk, c1, c2, c3,...,ck]
+    if method == DISCOUNTABS:
+        return DisCountAbs(k, value_method, token_datastore, weight=False)
+    if method == DISCOUNTWABS:
+        return DisCountAbs(k, value_method, token_datastore, weight=True)
+
+    # if method == TOP1_ALL:
+    #     return Top1(k, value_method, token_datastore, store_all=True)
+    # if method == TOP1_TOP1:
+    #     return Top1(k, value_method, token_datastore, store_all=False)
 
 
 def generate_label_count_mask(max_k):
@@ -191,8 +218,8 @@ class Top1DAbsolute(Flat):
 
 
 class DisAbsolute(Flat):
-    def __init__(self, k, value_method, token_datastore, relative_distance=True, append_distance=False, weight=False):
-        super().__init__(k, value_method, token_datastore, relative_distance, append_distance)
+    def __init__(self, k, value_method, token_datastore, weight=False):
+        super().__init__(k, value_method, token_datastore)
 
         self.weight = weight
         if self.weight:
@@ -206,6 +233,66 @@ class DisAbsolute(Flat):
         feature = distance.view(-1, self.distance_dim)
         if self.weight:
             feature = feature * (self.W.to(feature))
+        return feature
+
+
+class TopKCAbsolute(Flat):
+    def get_index_dim(self, k, feature_num, **kwargs):
+        return 1
+
+    def get_label_count(self, retrieve_tgt_index, **kwargs):
+        label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+        label_count = label_count[:, :, -1]
+        return label_count.view(-1, 1)
+
+
+class CountAbsolute(Flat):
+    def __init__(self, k, value_method, token_datastore, weight=False):
+        super().__init__(k, value_method, token_datastore)
+
+        self.weight = weight
+        if self.weight:
+            self.W = torch.Tensor([1 / 128, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2]).unsqueeze(0)
+
+    def get_index_dim(self, k, feature_num, **kwargs):
+        self.label_count_dim = k
+        return k
+
+    def get_label_count(self, retrieve_tgt_index, **kwargs):
+        label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+        feature = label_count.view(-1, self.label_count_dim).float()
+        if self.weight:
+            feature = feature * (self.W.to(feature))
+        return feature
+
+
+class DisCountAbs(Flat):
+    def __init__(self, k, value_method, token_datastore, weight=False):
+        super().__init__(k, value_method, token_datastore)
+
+        self.weight = weight
+        if self.weight:
+            self.label_W = torch.Tensor([1 / 128, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2]).unsqueeze(
+                0) / 2
+            self.distance_W = torch.Tensor([1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64, 1 / 128, 1 / 128]).unsqueeze(
+                0) / 2
+
+    def get_index_dim(self, k, feature_num, **kwargs):
+        self.label_count_dim = k
+        self.distance_dim = k
+        return k * feature_num
+
+    def get_label_count(self, retrieve_tgt_index, **kwargs):
+        label_count = count_knn_result(retrieve_tgt_index, self.mask_for_label_count)
+        feature = label_count.view(-1, self.label_count_dim).float()
+        if self.weight:
+            feature = feature * (self.label_W.to(feature))
+        return feature
+
+    def get_distance_feature(self, distance, **kwargs):
+        feature = distance.view(-1, self.distance_dim)
+        if self.weight:
+            feature = feature * (self.distance_W.to(feature))
         return feature
 
 # class Top1(CombinationMethod):
