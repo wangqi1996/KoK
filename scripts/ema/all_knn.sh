@@ -19,7 +19,7 @@ bleu_score=""
 file_list=$(getFileList $key)
 dir=$(getDir $key)
 for f in $file_list; do
-  bash /home/data_ti5_c/wangdq/code/knn-mt/scripts/ema/knnmt.sh $1 $dir $f $random_seed $lambda
+  bash /home/data_ti5_c/wangdq/code/knn-mt/scripts/ema/knnmt.sh $1 $dir $f $random_seed $key
   grep ^T $OUTPUT_PATH/generate-train.txt | cut -f2- >>$ref
   grep ^D $OUTPUT_PATH/generate-train.txt | cut -f3- >>$hypos
   cat $OUTPUT_PATH/generate-train.txt >>$output

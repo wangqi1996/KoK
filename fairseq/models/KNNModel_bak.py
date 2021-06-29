@@ -67,6 +67,9 @@ class KNNDatastore(object):
         # if self.whitening != "none":
         #     self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
 
+    def load_state_dict(self):
+        pass
+    
     def get_index_dim(self, args):
         return args.decoder_embed_dim
 
@@ -210,23 +213,6 @@ class KNNDatastore(object):
         knn_result = extra['knn_result']
         knn_lambda, knn_score = knn_result["lambda"], knn_result['score']
         score = logits * (1 - knn_lambda) + knn_score * knn_lambda
-
-        # # 计算reference的准确率
-        # if isinstance(knn_lambda, torch.Tensor):
-        #     batch_size, seq_len, vocab_size = logits.shape
-        #     p_nmt = logits.view(-1, vocab_size)
-        #     p_nmt_max, p_nmt_token = p_nmt.max(-1)
-        #     p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
-        #     p_knn = knn_score.view(-1, vocab_size).gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
-        #     value_1 = p_knn > p_nmt
-        #     lambda_1 = knn_lambda[value_1].sum().item()
-        #     count_1 = value_1.long().sum().item()
-        #     lambda_0 = knn_lambda[~value_1].sum().item()
-        #     count_0 = (~value_1).long().sum().item()
-        #     set_key_value("lambda_1", lambda_1)
-        #     set_key_value("lambda_0", lambda_0)
-        #     set_key_value("count_1", count_1)
-        #     set_key_value("count_0", count_0)
 
         if log_probs:
             score = torch.log(score)

@@ -38,9 +38,10 @@ class KNNTransformerDecoder(TransformerDecoder):
             alignment_layer=alignment_layer,
             alignment_heads=alignment_heads,
         )
-        knn_result = self.knn_datastore.retrieve_and_score(x)
+        feature = x
         if not features_only:
             x = self.output_layer(x)
+        knn_result = self.knn_datastore.retrieve_and_score(feature, p_nmt=x.softmax(-1))
         return x, extra, knn_result
 
     def get_normalized_probs(
@@ -97,6 +98,10 @@ class KNNTransformer(TransformerModel):
 
     def post_process(self, sample, encoder_out, **kwargs):
         self.decoder.add_datastore(sample, encoder_out, **kwargs)
+
+    def load_state_dict(self, state_dict, strict=True, args=None):
+        super().load_state_dict(state_dict, strict, args)
+        self.decoder.knn_datastore.load_state_dict()
 
 
 @register_model_architecture("knn_transformer", "knn_transformer_wmt19")

@@ -1,5 +1,7 @@
 import torch
 
+import torch.nn.functional as F
+
 RELATIVE_FLAT = "relative-flat"
 
 # key=[d1, r2, r2, ...,rk, c2, c3, ..., ck] or key=[r2, r2, ...,rk, c2, c3, ..., ck]
@@ -22,6 +24,7 @@ COUNTWABS = "count-w-abs"
 # key=[d1, d2, ...,dk, c1, c2, c3,...,ck]
 DISCOUNTABS = "dis-count-abs"
 DISCOUNTWABS = "dis-count-w-abs"
+DISCOUNTKLWABS = "dis-count-kl-w-abs"
 
 TOP1_ALL = "top1-all"
 TOP1_TOP1 = "top1-top1"
@@ -71,6 +74,10 @@ def get_combination_class(method, k, value_method, token_datastore):
         return DisCountAbs(k, value_method, token_datastore, weight=False)
     if method == DISCOUNTWABS:
         return DisCountAbs(k, value_method, token_datastore, weight=True)
+
+    # key = [d1, d2, ..., dk, c1, c2, c3, ..., ck, kl(p_knn, p_nmt), kl(p_nmt, p_knn)]
+    if method == DISCOUNTKLWABS:
+        return DisCountKLAbs(k, value_method, token_datastore, weight=True)
 
     # if method == TOP1_ALL:
     #     return Top1(k, value_method, token_datastore, store_all=True)
@@ -178,7 +185,7 @@ class Flat(CombinationMethod):
         label_count = label_count[:, :, 1:]
         return label_count.view(-1, self.label_count_dim)
 
-    def extract_value(self, retrieve_tokens, reference, p_nmt=None, knn_result=None, **kwargs):
+    def extract_value(self, retrieve_tokens, reference, p_nmt=None, p_knn=None, knn_result=None, **kwargs):
         """
         reference: [B, S] retrieve_tokens: [B, S, K]
         1. y_t in [t_1, t_2]
@@ -200,7 +207,6 @@ class Flat(CombinationMethod):
             p_nmt = p_nmt.view(-1, vocab_size)
             p_nmt = p_nmt.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
 
-            p_knn = self.token_datastore.get_score(knn_result)['score']
             p_knn = p_knn.view(-1, vocab_size)
             p_knn = p_knn.gather(-1, reference.view(-1).unsqueeze(-1)).view(-1)
             value = (p_nmt < p_knn).long()
@@ -293,6 +299,34 @@ class DisCountAbs(Flat):
         feature = distance.view(-1, self.distance_dim)
         if self.weight:
             feature = feature * (self.distance_W.to(feature))
+        return feature
+
+
+class DisCountKLAbs(DisCountAbs):
+    def __init__(self, k, value_method, token_datastore, weight=False):
+        super().__init__(k, value_method, token_datastore, weight)
+
+        if self.weight:
+            self.label_W = torch.Tensor([1 / 128, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2]).unsqueeze(
+                0) / 3
+            self.distance_W = torch.Tensor([1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64, 1 / 128, 1 / 128]).unsqueeze(
+                0) / 3
+            self.kl_W = torch.Tensor([1 / 2, 1 / 2]).unsqueeze(0) / 3
+
+    def get_index_dim(self, k, feature_num, **kwargs):
+        self.label_count_dim = k
+        self.distance_dim = k
+        self.kl_dim = 2
+        return k * (feature_num - 1) + self.kl_dim
+
+    def get_kl(self, p_knn, p_nmt):
+        batch_size, seq_len, _ = p_nmt.size()
+        forward_kl = -1 * F.kl_div((p_knn + 1e10).log(), p_nmt, reduction='none').sum(-1).view(batch_size, -1)
+        backward_kl = -1 * F.kl_div((p_nmt + 1e10).log(), p_knn, reduction='none').sum(-1).view(batch_size, -1)
+
+        feature = torch.cat((forward_kl, backward_kl), dim=-1).view(batch_size * seq_len, self.kl_dim)
+        if self.weight:
+            feature = feature * (self.kl_W.to(feature))
         return feature
 
 # class Top1(CombinationMethod):

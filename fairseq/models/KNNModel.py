@@ -32,6 +32,7 @@ class LabelDatastore(KNNDatastore):
         # feature list
         self.label_count = getattr(args, "label_count", False)
         self.distance = getattr(args, "distance", False)
+        self.nmt_knn_kl = getattr(args, "nmt_knn_kl", False)
 
         # combination method
         self.combination_method = getattr(args, "combination_method", 'relative-flat')
@@ -50,11 +51,53 @@ class LabelDatastore(KNNDatastore):
 
         self.key = torch.zeros((self.dstore_size, self.dimension), dtype=torch.float).cuda()
 
+        self.use_lambda_model = getattr(args, "use_lambda_model", False)
+        self.lambda_path = getattr(args, "lambda_path", "/home/wangdq/lambda-datastore/a/svm.pt")
+
+    def load_state_dict(self):
+        if self.use_lambda_model:
+            # hidden_dim = 256
+            # from torch import nn
+            # self.lambda_model = nn.Linear(16, 1).cuda()
+            # state = torch.load(self.lambda_path)
+            # self.lambda_model.load_state_dict(state, strict=True)
+            # self.lambda_model.eval()
+            #
+            import pickle
+            self.lambda_model = pickle.load(open(self.lambda_path, "rb"))
+
+    def get_lambda_predict(self, knn_result, **kwargs):
+        if knn_result['distance'] is None:
+            return 0
+        batch_size, seq_len, K = knn_result['distance'].shape
+        p_knn = knn_result['score']
+        feature = self.extract_feature(knn_result, keepdim=False, p_knn=p_knn, **kwargs)
+
+        # linear
+        # output = self.lambda_model(feature)
+        # output = output.sigmoid()
+        # svm
+        output = torch.Tensor(self.lambda_model.predict(feature.cpu().numpy())).to(knn_result['distance'])
+        output_mask = output > 0.99
+        output.masked_fill_(output_mask, 0.99)
+        return output.view(batch_size, seq_len, 1)
+
+    def get_lambda_value(self, token_result, queries, **kwargs):
+        if self.use_lambda_model:
+            label_score = self.get_lambda_predict(token_result, **kwargs)
+        else:
+            label_result = self.retrieve_and_score(queries, token_knn=token_result, **kwargs)
+            label_score = label_result['score']
+
+        return label_score
+
     def get_index_dim(self, args):
         feature_num = 0
         if self.label_count:
             feature_num += 1
         if self.distance:
+            feature_num += 1
+        if self.nmt_knn_kl:
             feature_num += 1
 
         return self.combination.get_index_dim(self.k, feature_num)
@@ -63,7 +106,7 @@ class LabelDatastore(KNNDatastore):
 
         return self.combination.get_datastore_size(task.datasets['train'].tgt.sizes.sum(), self.k)
 
-    def extract_feature(self, knn_result, search=False, keepdim=False):
+    def extract_feature(self, knn_result, search=False, keepdim=False, p_knn=None, p_nmt=None, **kwargs):
         """ call: (1). search label datastore    (2). save knn datastore"""
         feature = None
 
@@ -75,6 +118,11 @@ class LabelDatastore(KNNDatastore):
         if self.label_count:
             label_count = self.combination.get_label_count(knn_result['tgt_index'], search=search).float()
             feature = label_count if feature is None else torch.cat((feature, label_count), dim=-1)
+
+        if self.nmt_knn_kl:
+            nmt_knn_kl = self.combination.get_kl(p_knn, p_nmt)
+            feature = nmt_knn_kl if feature is None else torch.cat((feature, nmt_knn_kl), dim=-1)
+
         if keepdim:
             feature = feature.view(batch_size, seq_len, -1)
 
@@ -86,7 +134,7 @@ class LabelDatastore(KNNDatastore):
     def retrieve_and_score(self, queries, token_knn=None, **kwargs):
         """ token_knn=None  => directly input queries"""
         if token_knn is not None and token_knn['distance'] is not None:
-            queries = self.extract_feature(token_knn, search=True, keepdim=True)
+            queries = self.extract_feature(token_knn, search=True, keepdim=True, p_knn=-token_knn['score'], **kwargs)
             # pdb.set_trace()
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
@@ -107,15 +155,17 @@ class LabelTokenDatastore(object):
 
         self.store_lambda = getattr(args, "store_lambda", False)
         if self.store_lambda:
-            self.filename = "/home/wangdq/lambda-datastore/key.txt"
+            self.filename = args.store_lambda_file
             self.filename = open(self.filename, 'a')
+
+    def load_state_dict(self):
+        self.label_datastore.load_state_dict()
 
     def retrieve_and_score(self, queries, **kwargs):
         token_result = self.token_datastore.retrieve_and_score(queries, **kwargs)
         token_score, token_lambda = token_result['score'], token_result['lambda']
 
-        label_result = self.label_datastore.retrieve_and_score(queries, token_knn=token_result, **kwargs)
-        label_score = label_result['score']
+        label_score = self.label_datastore.get_lambda_value(token_result, queries, **kwargs)
 
         # # 计算lambda的均值
         # if isinstance(label_score, torch.Tensor):
@@ -132,6 +182,7 @@ class LabelTokenDatastore(object):
 
         parser.add_argument('--distance', action="store_true")
         parser.add_argument('--label-count', action="store_true")
+        parser.add_argument('--nmt-knn-kl', action="store_true")
 
         parser.add_argument('--save-label-datastore', action="store_true")
         parser.add_argument('--compute-label-accuracy', action="store_true")
@@ -158,11 +209,12 @@ class LabelTokenDatastore(object):
             assert (~mask).long().sum() == 0  # b=1, no invalid token  ==>  don't mask the label key and  label value,
 
             retrieve_tokens = retrieve_tokens.squeeze(-1)
+            p_knn = self.token_datastore.get_score(knn_result)['score']
             label_value = self.label_datastore.extract_value(retrieve_tokens=retrieve_tokens,
                                                              reference=value, p_nmt=p_nmt,
-                                                             knn_result=knn_result)
+                                                             knn_result=knn_result, p_knn=p_knn)
 
-            label_key = self.label_datastore.extract_feature(knn_result)
+            label_key = self.label_datastore.extract_feature(knn_result, p_nmt=p_nmt, p_knn=p_knn)
 
             self.label_datastore.add_key(label_key)
             self.label_datastore.add_mask_value(label_key.contiguous(), label_value.contiguous())
@@ -176,7 +228,7 @@ class LabelTokenDatastore(object):
         value = value.cpu().tolist()
         content = []
         for k, v in zip(key, value):
-            k = [str(kk) for kk in k]
+            k = ["%.2f" % kk for kk in k]
             content.append('\t'.join(k) + '\t' + str(v) + '\n')
         self.filename.writelines(content)
 
