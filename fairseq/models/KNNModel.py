@@ -54,6 +54,9 @@ class LabelDatastore(KNNDatastore):
         self.use_lambda_model = getattr(args, "use_lambda_model", False)
         self.lambda_path = getattr(args, "lambda_path", "/home/wangdq/lambda-datastore/a/svm.pt")
 
+        self.hard_label = getattr(args, "hard_label", False)
+        self.distance_threshold = getattr(args, "distance_threshold", -1)
+
     def load_state_dict(self):
         if self.use_lambda_model:
             # hidden_dim = 256
@@ -138,10 +141,21 @@ class LabelDatastore(KNNDatastore):
             # pdb.set_trace()
         result = super().retrieve_and_score(queries, **kwargs)
         if not isinstance(result['score'], int):
+
             result['score'] = result['score'][:, :, 1].unsqueeze(-1)
-            # 1.0 --> 0.99, else, log(0)
-            score_mask = result['score'] > 0.99
-            result['score'].masked_fill_(score_mask, 0.99)
+            if self.hard_label:
+                mask = result['score'] > 0.5
+                result['score'].masked_fill_(mask, 0.9999)
+                result['score'].masked_fill_(~mask, 0)
+            else:
+                # # 1.0 --> 0.99, else, log(0)
+                score_mask = result['score'] > 0.99
+                result['score'].masked_fill_(score_mask, 0.9999)
+
+            if self.distance_threshold != -1:
+                d0 = token_knn['distance'][:, :, 0]
+                mask = d0 > self.distance_threshold
+                result['score'].masked_fill_(mask.unsqueeze(-1), 0)
         return result
 
     def add_key(self, key):

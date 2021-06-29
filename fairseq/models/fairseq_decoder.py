@@ -6,8 +6,9 @@
 from typing import Dict, List, Optional, Tuple
 
 import torch.nn as nn
-from fairseq import utils
 from torch import Tensor
+
+from fairseq import utils
 
 
 class FairseqDecoder(nn.Module):
@@ -56,10 +57,11 @@ class FairseqDecoder(nn.Module):
         raise NotImplementedError
 
     def get_normalized_probs(
-        self,
-        net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]],
-        log_probs: bool,
-        sample: Optional[Dict[str, Tensor]] = None,
+            self,
+            net_output: Tuple[Tensor, Optional[Dict[str, List[Optional[Tensor]]]]],
+            log_probs: bool,
+            sample: Optional[Dict[str, Tensor]] = None,
+            **kwargs
     ):
         """Get normalized probabilities (or log probs) from a net's output."""
 

@@ -3,9 +3,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
-import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -680,6 +681,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             alignment_heads: Optional[int] = None,
             src_lengths: Optional[Any] = None,
             return_all_hiddens: bool = False,
+            **kwargs
     ):
         """
         Args:

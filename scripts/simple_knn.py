@@ -4,8 +4,9 @@ svm
 
 import os
 
+import faiss
+import numpy
 import numpy as np
-from sklearn.svm import SVC
 
 from scripts.simple_mlp import split_dataset
 
@@ -24,23 +25,21 @@ def load_dataset(dirname):
     test_x = np.load(test_x_name)
     test_y = np.load(test_y_name).squeeze()
 
-    # reverse 0 -> -1
-    def reverse(data):
-        mask = data == 0
-        data[mask] = -1
-        return data
-
-    test_y = reverse(test_y)
-    valid_y = reverse(valid_y)
-    train_y = reverse(train_y)
-
     print("training data size: ", train_x.shape)
 
     dim = train_x.shape[-1]
 
+    weight = numpy.array(
+        [1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64, 1 / 128, 1 / 128, 1 / 128, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8,
+         1 / 4, 1 / 2]) / 2
+
+    train_x = train_x * weight
+    valid_y = valid_x * weight
+    test_x = test_x * weight
+
     # count label 0 and label 1
     def count_label(dataset, key):
-        label_0 = (dataset == -1).sum()
+        label_0 = (dataset == 0).sum()
         label_1 = (dataset == 1).sum()
         print(key, ": label_0: ", label_0 / (label_0 + label_1), " label_1: ", label_1 / (label_0 + label_1))
 
@@ -59,13 +58,36 @@ def compute_accuracy(predict, reference):
     return float("%.2f" % (correct / all))
 
 
-def get_predict(output):
-    predict = (output.sigmoid() > 0.5)
+def build_index(train_x, dim):
+    index = faiss.IndexFlatL2(dim)
+
+    res = faiss.StandardGpuResources()
+    co = faiss.GpuClonerOptions()
+    co.useFloat16 = True
+    index = faiss.index_cpu_to_gpu(res, 0, index, co)
+
+    index.add(train_x.astype(np.float32))
+    return index
+
+
+def model_predict(index, queries, value):
+    # TODO 调整阈值
+    dists, knn_index = index.search(queries.astype(np.float32), k=8)
+    select_value = value[knn_index]
+    weight = softmax((-1 * dists) / 100)
+    predict = (weight * select_value).sum(-1)
+    predict = (predict > 0.7).astype(int)
     return predict
 
 
-def predict(model, x, y):
-    output = model.predict(x)
+def softmax(data):
+    exp_data = numpy.exp(data)
+    exp_data_sum = exp_data.sum(-1).reshape(-1, 1)
+    return exp_data / exp_data_sum
+
+
+def predict(model, x, y, train_y):
+    output = model_predict(model, x, train_y)
     correct = (output == y).sum()
     all = output.size
     accuracy = "%.2f" % (correct / all)
@@ -78,7 +100,7 @@ def predict(model, x, y):
         print(label, " accuracy: ", "%.2f" % (correct / accuracy))
         print(label, " recall: ", "%.2f" % (correct / recall))
 
-    count_label(-1)
+    count_label(0)
     count_label(1)
 
 
@@ -88,23 +110,10 @@ def train():
     dirname = "/home/wangdq/lambda-datastore/" + key
     dim, train_x, train_y, valid_x, valid_y, test_x, test_y = load_dataset(dirname)
 
-    clf = SVC(kernel='linear')
-    clf.fit(train_x, train_y)
-    print(clf.coef_)
+    model = build_index(train_x, dim)
+    predict(model, test_x, test_y, train_y)
 
-    predict(clf, valid_x, valid_y)
-    predict(clf, test_x, test_y)
-
-    # model = svm_train(train_y, train_x, '-s 0 -c 10 -t 2 -b 1')
-    # p_label, p_acc, p_val = svm_predict(valid_y, valid_x, model)
-    # svm_save_model(dirname + './libsvm.pt', model)
-    # print(p_label)
-    # print(p_acc)
-    # print(p_val)
-
-    # import pickle
-    # filename = os.path.join(dirname, "svm.pt")
-    # pickle.dump(clf, open(filename, "wb"))
+    faiss.write_index(model.index_gpu_to_cpu(index), )
 
 
 if __name__ == '__main__':
