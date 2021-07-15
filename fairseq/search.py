@@ -356,7 +356,7 @@ class LexicallyConstrainedBeamSearch(Search):
             new_beams = torch.arange(0, beam_size, device=device).repeat(batch_size, 1)
             beams_buf = torch.cat((beams_buf, new_beams), dim=1)
 
-        # Now, process sentences in the batch one by one.
+        # Now, law-process sentences in the batch one by one.
         new_scores_buf = torch.zeros((batch_size, 2 * beam_size), device=device)
         new_indices_buf = torch.zeros((batch_size, 2 * beam_size), device=device).long()
         new_beams_buf = torch.zeros((batch_size, 2 * beam_size), device=device).long()

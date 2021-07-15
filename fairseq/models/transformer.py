@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -276,6 +275,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
             features_only: bool = False,
             alignment_layer: Optional[int] = None,
             alignment_heads: Optional[int] = None,
+            sample=None,
+            **kwargs
     ):
         """
         Run the forward pass for an encoder-decoder model.
@@ -294,6 +295,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
             alignment_heads=alignment_heads,
             src_lengths=src_lengths,
             return_all_hiddens=return_all_hiddens,
+            sample=sample,
+            **kwargs
         )
         return decoder_out
 

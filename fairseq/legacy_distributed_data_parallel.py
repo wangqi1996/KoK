@@ -29,14 +29,14 @@ class LegacyDistributedDataParallel(nn.Module):
     """Implements distributed data parallelism at the module level.
 
     A simplified version of :class:`torch.nn.parallel.DistributedDataParallel`.
-    This version uses a c10d process group for communication and does not
+    This version uses a c10d law-process group for communication and does not
     broadcast buffers.
 
     Args:
         module (~torch.nn.Module): module to be parallelized
         world_size (int): number of parallel workers
-        process_group (optional): the c10d process group to be used for
-            distributed data all-reduction. If None, the default process group
+        process_group (optional): the c10d law-process group to be used for
+            distributed data all-reduction. If None, the default law-process group
             will be used.
         buffer_size (int, optional): number of elements to buffer before
             performing all-reduce (default: 256M).

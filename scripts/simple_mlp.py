@@ -167,7 +167,8 @@ def eval(model, dataloader):
 
 
 if __name__ == '__main__':
-    split_dataset("/home/wangdq/lambda-datastore-nmt/key.e.txt", key="e")
+    key = 'e'
+    split_dataset("/home/wangdq/lambda-datastore-W/key." + key + ".txt", key=key)
 
     """
     无用的参数：

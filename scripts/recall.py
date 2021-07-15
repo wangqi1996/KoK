@@ -34,9 +34,9 @@ import os
 
 
 def compute_bleu(file):
-    os.system("grep ^T %s | cut -f2- > ref" % file)
-    os.system("grep ^D %s | cut -f3- > hypo" % file)
-    return "%.1f" % sacrebleu.corpus_bleu(open("hypo"), [open("ref")]).score
+    os.system("grep ^T %s | cut -f2- > /home/wangdq/ref" % file)
+    os.system("grep ^D %s | cut -f3- > /home/wangdq/hypo" % file)
+    return "%.1f" % sacrebleu.corpus_bleu(open("/home/wangdq/hypo"), [open("/home/wangdq/ref")]).score
 
 
 def time_index(times):

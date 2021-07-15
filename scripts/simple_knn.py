@@ -29,14 +29,6 @@ def load_dataset(dirname):
 
     dim = train_x.shape[-1]
 
-    weight = numpy.array(
-        [1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64, 1 / 128, 1 / 128, 1 / 128, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8,
-         1 / 4, 1 / 2]) / 2
-
-    train_x = train_x * weight
-    valid_y = valid_x * weight
-    test_x = test_x * weight
-
     # count label 0 and label 1
     def count_label(dataset, key):
         label_0 = (dataset == 0).sum()
@@ -105,15 +97,15 @@ def predict(model, x, y, train_y):
 
 
 def train():
-    key = "a"
-    split_dataset("/home/wangdq/lambda-datastore/key.%s.txt" % key, key=key)
-    dirname = "/home/wangdq/lambda-datastore/" + key
+    key = "e"
+    # split_dataset("/home/wangdq/lambda-datastore-W/key.%s.txt" % key, key=key)
+    dirname = "/home/wangdq/lambda-datastore-W/" + key
     dim, train_x, train_y, valid_x, valid_y, test_x, test_y = load_dataset(dirname)
 
     model = build_index(train_x, dim)
     predict(model, test_x, test_y, train_y)
-
-    faiss.write_index(model.index_gpu_to_cpu(index), )
+    print(model.ntotal)
+    faiss.write_index(faiss.index_gpu_to_cpu(model), "/home/wangdq/lambda-datastore-W/" + key + "/knn.index")
 
 
 if __name__ == '__main__':

@@ -55,7 +55,7 @@ class FastaDataset(torch.utils.data.Dataset):
 
     def _build_index(self, path: str):
         # Use grep and awk to get 100M/s on local SSD.
-        # Should process your enormous 100G fasta in ~10 min single core...
+        # Should law-process your enormous 100G fasta in ~10 min single core...
         path = fasta_file_path(path)
         bytes_offsets = subprocess.check_output(
             f"cat {path} | tqdm --bytes --total $(wc -c < {path})"

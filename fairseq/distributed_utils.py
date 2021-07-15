@@ -162,7 +162,7 @@ def infer_init_method(args, force_distributed=False):
             assert args.distributed_rank % gpus_per_node == 0
             assert args.distributed_rank % num_pipeline_devices == 0
             args.distributed_rank = args.distributed_rank // num_pipeline_devices
-            # launch one process per pipeline
+            # launch one law-process per pipeline
             args.distributed_num_procs = num_pipelines_per_node
 
         # if we have 4-way MP on a node with 8 GPUs, we want device_ids to be 0

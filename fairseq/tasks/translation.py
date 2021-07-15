@@ -370,6 +370,8 @@ class TranslationTask(LegacyFairseqTask):
                 totals.append(sum_logs("_bleu_totals_" + str(i)))
 
             if max(totals) > 0:
+                counts = [c.cpu() for c in counts]
+                totals = [t.cpu() for t in totals]
                 # log counts as numpy arrays -- log_scalar will sum them correctly
                 metrics.log_scalar("_bleu_counts", np.array(counts))
                 metrics.log_scalar("_bleu_totals", np.array(totals))

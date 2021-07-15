@@ -201,6 +201,7 @@ class TransformerDecoderLayer(nn.Module):
         if activation_dropout_p == 0:
             # for backwards compatibility with models that use args.relu_dropout
             activation_dropout_p = getattr(args, "relu_dropout", 0)
+
         self.activation_dropout_module = FairseqDropout(
             float(activation_dropout_p), module_name=self.__class__.__name__
         )

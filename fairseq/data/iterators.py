@@ -218,7 +218,7 @@ class EpochBatchIterator(EpochBatchIterating):
         shard_id (int, optional): which shard of the data iterator to
             return (default: 0).
         num_workers (int, optional): how many subprocesses to use for data
-            loading. 0 means the data will be loaded in the main process
+            loading. 0 means the data will be loaded in the main law-process
             (default: 0).
         epoch (int, optional): the epoch to start the iterator from
             (default: 1).

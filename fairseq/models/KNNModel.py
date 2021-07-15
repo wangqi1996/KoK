@@ -2,7 +2,7 @@ import logging
 
 import faiss.contrib.torch_utils
 import torch
-
+import numpy as np
 from fairseq.models.CombinationMethod import get_combination_class
 from fairseq.models.KNNModel_bak import KNNDatastore, DynamicD
 from fairseq.models.whitening_util import get_whitening_method
@@ -26,6 +26,12 @@ def build_knn_datastore(args, task, **kwargs):
     elif knn_type == 'dynamic-d':
         return DynamicD(args, task)
 
+def model_predict(index, queries, value):
+    dists, knn_index = index.search(queries, k=8)
+    select_value = value[knn_index.view(-1)].view(-1, 8)
+    weight = ((-1 * dists) / 10).softmax(-1)
+    predict = (weight * select_value).sum(-1)
+    return predict
 
 class LabelDatastore(KNNDatastore):
     def __init__(self, args, task, token_datastore=None, **kwargs):
@@ -59,15 +65,23 @@ class LabelDatastore(KNNDatastore):
 
     def load_state_dict(self):
         if self.use_lambda_model:
+            # linear
             # hidden_dim = 256
             # from torch import nn
             # self.lambda_model = nn.Linear(16, 1).cuda()
             # state = torch.load(self.lambda_path)
             # self.lambda_model.load_state_dict(state, strict=True)
             # self.lambda_model.eval()
-            #
-            import pickle
-            self.lambda_model = pickle.load(open(self.lambda_path, "rb"))
+            # svm
+            # import pickle
+            # self.lambda_model = pickle.load(open(self.lambda_path, "rb"))
+            model = faiss.read_index(self.args.index_file, faiss.IO_FLAG_ONDISK_SAME_DIR)
+            res = faiss.StandardGpuResources()
+            co = faiss.GpuClonerOptions()
+            self.model = faiss.index_cpu_to_gpu(res, 0, model, co)
+            self.model_value = torch.Tensor(np.load(self.args.value_file)).cuda()
+
+
 
     def get_lambda_predict(self, knn_result, **kwargs):
         if knn_result['distance'] is None:
@@ -80,7 +94,10 @@ class LabelDatastore(KNNDatastore):
         # output = self.lambda_model(feature)
         # output = output.sigmoid()
         # svm
-        output = torch.Tensor(self.lambda_model.predict(feature.cpu().numpy())).to(knn_result['distance'])
+        # output = torch.Tensor(self.lambda_model.predict(feature.cpu().numpy())).to(knn_result['distance'])
+        # knn
+        output = model_predict(self.model, feature, self.model_value)
+
         output_mask = output > 0.99
         output.masked_fill_(output_mask, 0.99)
         return output.view(batch_size, seq_len, 1)

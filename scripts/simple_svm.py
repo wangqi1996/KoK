@@ -24,16 +24,6 @@ def load_dataset(dirname):
     test_x = np.load(test_x_name)
     test_y = np.load(test_y_name).squeeze()
 
-    # reverse 0 -> -1
-    def reverse(data):
-        mask = data == 0
-        data[mask] = -1
-        return data
-
-    test_y = reverse(test_y)
-    valid_y = reverse(valid_y)
-    train_y = reverse(train_y)
-
     print("training data size: ", train_x.shape)
 
     dim = train_x.shape[-1]
@@ -78,12 +68,13 @@ def predict(model, x, y):
         print(label, " accuracy: ", "%.2f" % (correct / accuracy))
         print(label, " recall: ", "%.2f" % (correct / recall))
 
-    count_label(-1)
+    count_label(0)
     count_label(1)
 
 
 def train():
-    key = "a"
+    import sys
+    key = sys.argv[1]
     split_dataset("/home/wangdq/lambda-datastore/key.%s.txt" % key, key=key)
     dirname = "/home/wangdq/lambda-datastore/" + key
     dim, train_x, train_y, valid_x, valid_y, test_x, test_y = load_dataset(dirname)
@@ -92,7 +83,7 @@ def train():
     clf.fit(train_x, train_y)
     print(clf.coef_)
 
-    predict(clf, valid_x, valid_y)
+    # predict(clf, valid_x, valid_y)
     predict(clf, test_x, test_y)
 
     # model = svm_train(train_y, train_x, '-s 0 -c 10 -t 2 -b 1')
@@ -102,9 +93,9 @@ def train():
     # print(p_acc)
     # print(p_val)
 
-    # import pickle
-    # filename = os.path.join(dirname, "svm.pt")
-    # pickle.dump(clf, open(filename, "wb"))
+    import pickle
+    filename = os.path.join(dirname, "linear-svm.pt")
+    pickle.dump(clf, open(filename, "wb"))
 
 
 if __name__ == '__main__':

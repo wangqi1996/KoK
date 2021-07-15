@@ -22,6 +22,7 @@ def collate(
         input_feeding=True,
         pad_to_length=None,
         pad_to_multiple=1,
+        is_sort=True  # 只兼容source
 ):
     if len(samples) == 0:
         return {}
@@ -74,9 +75,10 @@ def collate(
     src_lengths = torch.LongTensor(
         [s["source"].ne(pad_idx).long().sum() for s in samples]
     )
-    src_lengths, sort_order = src_lengths.sort(descending=True)
-    id = id.index_select(0, sort_order)
-    src_tokens = src_tokens.index_select(0, sort_order)
+    if is_sort:
+        src_lengths, sort_order = src_lengths.sort(descending=True)
+        id = id.index_select(0, sort_order)
+        src_tokens = src_tokens.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None
@@ -341,7 +343,7 @@ class LanguagePairDataset(FairseqDataset):
     def __len__(self):
         return len(self.src)
 
-    def collater(self, samples, pad_to_length=None):
+    def collater(self, samples, pad_to_length=None, is_sort=True):
         """Merge a list of samples to form a mini-batch.
 
         Args:
@@ -386,6 +388,7 @@ class LanguagePairDataset(FairseqDataset):
             input_feeding=self.input_feeding,
             pad_to_length=pad_to_length,
             pad_to_multiple=self.pad_to_multiple,
+            is_sort=is_sort
         )
         if self.src_lang_id is not None or self.tgt_lang_id is not None:
             src_tokens = res["net_input"]["src_tokens"]

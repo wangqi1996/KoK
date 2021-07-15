@@ -69,7 +69,7 @@ class KNNDatastore(object):
 
     def load_state_dict(self):
         pass
-    
+
     def get_index_dim(self, args):
         return args.decoder_embed_dim
 

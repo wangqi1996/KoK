@@ -314,7 +314,8 @@ class SequenceGenerator(nn.Module):
                 encoder_outs,
                 incremental_states,
                 self.temperature,
-                reference=sample['target']
+                reference=sample['target'],
+                step=step
             )
 
             if self.lm_model is not None:
@@ -542,9 +543,9 @@ class SequenceGenerator(nn.Module):
                 List[Dict[str, Tensor]], finalized[sent]
             )
 
-        hypo_value = [f[0]['tokens'] for f in finalized]
-        hypo_value = torch.stack(hypo_value, dim=0)
-        self.model.post_process(sample, encoder_out_bak, hypo_value=hypo_value)
+        # hypo_value = [f[0]['tokens'] for f in finalized]
+        # hypo_value = torch.stack(hypo_value, dim=0)
+        # self.model.post_process(sample, encoder_out_bak, hypo_value=hypo_value)
 
         return finalized
 

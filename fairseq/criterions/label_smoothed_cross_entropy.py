@@ -6,6 +6,7 @@
 import math
 
 import torch
+
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 
@@ -33,12 +34,12 @@ def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=T
 @register_criterion("label_smoothed_cross_entropy")
 class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
     def __init__(
-        self,
-        task,
-        sentence_avg,
-        label_smoothing,
-        ignore_prefix_size=0,
-        report_accuracy=False,
+            self,
+            task,
+            sentence_avg,
+            label_smoothing,
+            ignore_prefix_size=0,
+            report_accuracy=False,
     ):
         super().__init__(task)
         self.sentence_avg = sentence_avg
@@ -58,7 +59,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
                             help='Ignore first N tokens')
         # fmt: on
 
-    def forward(self, model, sample, reduce=True):
+    def forward(self, model, sample, reduce=True, **kwargs):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -66,7 +67,7 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        net_output = model(**sample["net_input"])
+        net_output = model(**sample["net_input"], sample=sample, **kwargs)
         loss, nll_loss = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = (
             sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
@@ -89,11 +90,11 @@ class LabelSmoothedCrossEntropyCriterion(FairseqCriterion):
         target = model.get_targets(sample, net_output)
         if self.ignore_prefix_size > 0:
             if getattr(lprobs, "batch_first", False):
-                lprobs = lprobs[:, self.ignore_prefix_size :, :].contiguous()
-                target = target[:, self.ignore_prefix_size :].contiguous()
+                lprobs = lprobs[:, self.ignore_prefix_size:, :].contiguous()
+                target = target[:, self.ignore_prefix_size:].contiguous()
             else:
-                lprobs = lprobs[self.ignore_prefix_size :, :, :].contiguous()
-                target = target[self.ignore_prefix_size :, :].contiguous()
+                lprobs = lprobs[self.ignore_prefix_size:, :, :].contiguous()
+                target = target[self.ignore_prefix_size:, :].contiguous()
         return lprobs.view(-1, lprobs.size(-1)), target.view(-1)
 
     def compute_loss(self, model, net_output, sample, reduce=True):

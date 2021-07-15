@@ -14,7 +14,8 @@ __pycache__/
 scripts/ema/
 scripts/adaptive/
 scripts/law/
-scripts/process/
+scripts/law-process/
+scripts/medical-process
 examples/
 output/
 # Distribution / packaging
@@ -135,3 +136,4 @@ data-bin/
 
 # Experimental Folder
 experimental/*
+/scripts/law-process/all_bpe_bin.sh
