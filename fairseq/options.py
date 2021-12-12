@@ -422,6 +422,8 @@ def add_generation_args(parser):
                        help='if set, only retain dropout for the specified modules; '
                             'if not set, then dropout will be retained for all modules')
 
+    group.add_argument("--teacher-forcing", action="store_true")
+
     # special decoding format for advanced decoding.
     group.add_argument('--decoding-format', default=None, type=str, choices=['unigram', 'ensemble', 'vote', 'dp', 'bs'])
     # fmt: on

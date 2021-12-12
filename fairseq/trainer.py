@@ -15,12 +15,12 @@ from itertools import chain
 from typing import Any, Dict, List
 
 import torch
+
 from fairseq import checkpoint_utils, distributed_utils, models, optim, utils
 from fairseq.file_io import PathManager
 from fairseq.logging import meters, metrics
 from fairseq.nan_detector import NanDetector
 from fairseq.optim import lr_scheduler
-
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +150,10 @@ class Trainer(object):
     def criterion(self):
         if self._wrapped_criterion is None:
             if (
-                utils.has_parameters(self._criterion)
-                and self.data_parallel_world_size > 1
-                and not self.args.use_bmuf
-                and not self.tpu
+                    utils.has_parameters(self._criterion)
+                    and self.data_parallel_world_size > 1
+                    and not self.args.use_bmuf
+                    and not self.tpu
             ):
                 self._wrapped_criterion = models.DistributedFairseqModel(
                     self.args,
@@ -168,9 +168,9 @@ class Trainer(object):
     def model(self):
         if self._wrapped_model is None:
             if (
-                self.data_parallel_world_size > 1
-                and not self.args.use_bmuf
-                and not self.tpu
+                    self.data_parallel_world_size > 1
+                    and not self.args.use_bmuf
+                    and not self.tpu
             ):
                 self._wrapped_model = models.DistributedFairseqModel(
                     self.args,
@@ -223,9 +223,9 @@ class Trainer(object):
 
         if self.args.zero_sharding == "os":
             if (
-                self.args.fp16
-                and not self.args.memory_efficient_fp16
-                and not self.args.memory_efficient_bf16
+                    self.args.fp16
+                    and not self.args.memory_efficient_fp16
+                    and not self.args.memory_efficient_bf16
             ) and not self.args.fp16_no_flatten_grads:
                 raise ValueError(
                     "ZeRO is incomptabile with fp16 and flattened grads. "
@@ -264,12 +264,12 @@ class Trainer(object):
             )
 
     def load_checkpoint(
-        self,
-        filename,
-        reset_optimizer=False,
-        reset_lr_scheduler=False,
-        optimizer_overrides=None,
-        reset_meters=False,
+            self,
+            filename,
+            reset_optimizer=False,
+            reset_lr_scheduler=False,
+            optimizer_overrides=None,
+            reset_meters=False,
     ):
         """Load all training state from a checkpoint file."""
         extra_state, self._optim_history, last_optim_state = None, [], None
@@ -281,7 +281,7 @@ class Trainer(object):
             # load model parameters
             try:
                 self.get_model().load_state_dict(
-                    state["model"], strict=True, args=self.args
+                    state["model"], strict=False, args=self.args
                 )
                 if utils.has_parameters(self.get_criterion()):
                     self.get_criterion().load_state_dict(
@@ -304,10 +304,10 @@ class Trainer(object):
             # only reload optimizer and lr_scheduler if they match
             last_optim = self._optim_history[-1]
             assert (
-                last_optim["criterion_name"] == self.get_criterion().__class__.__name__
+                    last_optim["criterion_name"] == self.get_criterion().__class__.__name__
             ), "Criterion does not match; please reset the optimizer (--reset-optimizer)."
             assert (
-                last_optim["optimizer_name"] == self.optimizer.__class__.__name__
+                    last_optim["optimizer_name"] == self.optimizer.__class__.__name__
             ), "Optimizer does not match; please reset the optimizer (--reset-optimizer)."
 
             if not reset_lr_scheduler:
@@ -343,13 +343,13 @@ class Trainer(object):
         return extra_state
 
     def get_train_iterator(
-        self,
-        epoch,
-        combine=True,
-        load_dataset=True,
-        data_selector=None,
-        shard_batch_itr=True,
-        disable_iterator_cache=False,
+            self,
+            epoch,
+            combine=True,
+            load_dataset=True,
+            data_selector=None,
+            shard_batch_itr=True,
+            disable_iterator_cache=False,
     ):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         if load_dataset:
@@ -383,9 +383,9 @@ class Trainer(object):
         return batch_iterator
 
     def get_valid_iterator(
-        self,
-        subset,
-        disable_iterator_cache=False,
+            self,
+            subset,
+            disable_iterator_cache=False,
     ):
         """Return an EpochBatchIterator over given validation subset for a given epoch."""
         batch_iterator = self.task.get_batch_iterator(
@@ -466,9 +466,9 @@ class Trainer(object):
                 all-reduce in the last backwards pass.
                 """
                 if (
-                    self.data_parallel_world_size > 1
-                    and hasattr(self.model, "no_sync")
-                    and i < len(samples) - 1
+                        self.data_parallel_world_size > 1
+                        and hasattr(self.model, "no_sync")
+                        and i < len(samples) - 1
                 ):
                     return self.model.no_sync()
                 else:
@@ -547,7 +547,7 @@ class Trainer(object):
                 ignore=is_dummy_batch,
             )
             self._cumulative_training_time = (
-                total_train_time / self.data_parallel_world_size
+                    total_train_time / self.data_parallel_world_size
             )
 
         if hasattr(self.model, "all_reduce"):
@@ -583,8 +583,8 @@ class Trainer(object):
             # on tpu check tensor is slow
             if not self.tpu:
                 if (
-                    not self.args.use_bmuf
-                    and self.args.distributed_wrapper != "SlowMo"
+                        not self.args.use_bmuf
+                        and self.args.distributed_wrapper != "SlowMo"
                 ):
                     self._check_grad_norms(grad_norm)
                 if not torch.isfinite(grad_norm).all():
@@ -682,13 +682,13 @@ class Trainer(object):
 
                 # clear CUDA cache to reduce memory fragmentation
                 if (
-                    self.cuda
-                    and self.args.empty_cache_freq > 0
-                    and (
+                        self.cuda
+                        and self.args.empty_cache_freq > 0
+                        and (
                         (self.get_num_updates() + self.args.empty_cache_freq - 1)
                         % self.args.empty_cache_freq
-                    )
-                    == 0
+                )
+                        == 0
                 ):
                     torch.cuda.empty_cache()
 
@@ -830,7 +830,7 @@ class Trainer(object):
         elif name in {"valid_loss", "valid_nll_loss"}:
             # support for legacy train.py, which assumed these meters
             # are always initialized
-            k = name[len("valid_") :]
+            k = name[len("valid_"):]
             m = metrics.get_meter("valid", k)
             return m or meters.AverageMeter()
         elif name == "oom":
@@ -916,7 +916,7 @@ class Trainer(object):
             return False
         elif self.args.use_bmuf:
             return (self.get_num_updates() + 1) % self.args.global_sync_iter == 0 and (
-                self.get_num_updates() + 1
+                    self.get_num_updates() + 1
             ) > self.args.warmup_iterations
         else:
             return True
@@ -930,10 +930,10 @@ class Trainer(object):
         sys.stderr.flush()
 
     def _aggregate_logging_outputs(
-        self,
-        logging_outputs: List[Dict[str, Any]],
-        *extra_stats_to_sum,
-        ignore=False,
+            self,
+            logging_outputs: List[Dict[str, Any]],
+            *extra_stats_to_sum,
+            ignore=False,
     ):
         if self.task.__class__.logging_outputs_can_be_summed(self.get_criterion()):
             return self._fast_stat_sync_sum(
@@ -945,10 +945,10 @@ class Trainer(object):
             )
 
     def _all_gather_list_sync(
-        self,
-        logging_outputs: List[Dict[str, Any]],
-        *extra_stats_to_sum,
-        ignore=False,
+            self,
+            logging_outputs: List[Dict[str, Any]],
+            *extra_stats_to_sum,
+            ignore=False,
     ):
         """
         Sync logging outputs across workers. all_gather_list_sync is
@@ -973,10 +973,10 @@ class Trainer(object):
         return logging_outputs, extra_stats_to_sum
 
     def _fast_stat_sync_sum(
-        self,
-        logging_outputs: List[Dict[str, Any]],
-        *extra_stats_to_sum,
-        ignore=False,
+            self,
+            logging_outputs: List[Dict[str, Any]],
+            *extra_stats_to_sum,
+            ignore=False,
     ):
         """
         Sync logging outputs across workers. fast_stat_sync_sum is
@@ -1024,8 +1024,8 @@ class Trainer(object):
             def is_consistent(tensor):
                 max_abs_diff = torch.max(torch.abs(tensor - tensor[0]))
                 return (
-                    torch.isfinite(tensor).all()
-                    or (max_abs_diff / (tensor[0] + 1e-6) < 1e-6).all()
+                        torch.isfinite(tensor).all()
+                        or (max_abs_diff / (tensor[0] + 1e-6) < 1e-6).all()
                 )
 
             if not is_consistent(self._grad_norm_buf):

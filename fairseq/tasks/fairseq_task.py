@@ -227,7 +227,6 @@ class FairseqTask(object):
             indices = self.filter_indices_by_size(
                 indices, dataset, max_positions, ignore_invalid_inputs
             )
-
         # create mini-batches with given size constraints
         batch_sampler = dataset.batch_by_size(
             indices,
@@ -384,6 +383,7 @@ class FairseqTask(object):
             match_source_len=getattr(args, "match_source_len", False),
             no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
             search_strategy=search_strategy,
+            args=args,
             **extra_gen_cls_kwargs,
         )
 

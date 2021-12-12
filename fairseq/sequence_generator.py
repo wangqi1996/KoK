@@ -2,10 +2,10 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-import copy
 import math
 from typing import Dict, List, Optional
 
+import copy
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -36,6 +36,7 @@ class SequenceGenerator(nn.Module):
             symbols_to_strip_from_output=None,
             lm_model=None,
             lm_weight=1.0,
+            args=None
     ):
         """Generates translations of a given source sentence.
 
@@ -105,6 +106,11 @@ class SequenceGenerator(nn.Module):
         self.lm_weight = lm_weight
         if self.lm_model is not None:
             self.lm_model.eval()
+
+        # self.teacher_forcing = getattr(args, "teacher_forcing", False)
+        self.teacher_forcing = False
+        # if self.teacher_forcing:
+        #     assert beam_size == 1
 
     def cuda(self):
         self.model.cuda()
@@ -223,14 +229,18 @@ class SequenceGenerator(nn.Module):
         self.search.init_constraints(constraints, beam_size)
 
         max_len: int = -1
-        if self.match_source_len:
-            max_len = src_lengths.max().item()
+        if not self.teacher_forcing:
+            if self.match_source_len:
+                max_len = src_lengths.max().item()
+            else:
+                max_len = min(
+                    int(self.max_len_a * src_len + self.max_len_b),
+                    # exclude the EOS marker
+                    self.model.max_decoder_positions() - 1,
+                )
         else:
-            max_len = min(
-                int(self.max_len_a * src_len + self.max_len_b),
-                # exclude the EOS marker
-                self.model.max_decoder_positions() - 1,
-            )
+            max_len = sample['net_input']['prev_output_tokens'].size(-1) - 1
+
         assert (
                 self.min_len <= max_len
         ), "min_len cannot be larger than max_len, please adjust these!"
@@ -291,6 +301,7 @@ class SequenceGenerator(nn.Module):
         else:
             original_batch_idxs = torch.arange(0, bsz).type_as(tokens)
 
+        sample_id = sample['id'].index_select(-1, new_order)
         for step in range(max_len + 1):  # one extra step for EOS marker
             # reorder decoder internal states based on the prev choice of beams
             # print(f'step: {step}')
@@ -308,6 +319,9 @@ class SequenceGenerator(nn.Module):
                 encoder_outs = self.model.reorder_encoder_out(
                     encoder_outs, reorder_state
                 )
+                sample_id = sample_id.index_select(-1, reorder_state)
+            if self.teacher_forcing:
+                tokens[:, : step + 1] = sample['net_input']['prev_output_tokens'][:, : step + 1]
 
             lprobs, avg_attn_scores = self.model.forward_decoder(
                 tokens[:, : step + 1],
@@ -315,6 +329,7 @@ class SequenceGenerator(nn.Module):
                 incremental_states,
                 self.temperature,
                 reference=sample['target'],
+                sample_id=sample_id,
                 step=step
             )
 
@@ -543,9 +558,10 @@ class SequenceGenerator(nn.Module):
                 List[Dict[str, Tensor]], finalized[sent]
             )
 
-        # hypo_value = [f[0]['tokens'] for f in finalized]
-        # hypo_value = torch.stack(hypo_value, dim=0)
-        # self.model.post_process(sample, encoder_out_bak, hypo_value=hypo_value)
+        if len(sample['id']) == 1:
+            hypo_value = [f[0]['tokens'] for f in finalized]
+            hypo_value = torch.stack(hypo_value, dim=0)
+            self.model.post_process(sample, encoder_out_bak, hypo_value=hypo_value)
 
         return finalized
 
@@ -865,7 +881,7 @@ class EnsembleModel(nn.Module):
                                 ) + decoder_out[1:]
 
             probs = model.get_normalized_probs(
-                decoder_out_tuple, log_probs=True, sample=None, tokens=tokens, reference=reference, **kwargs
+                decoder_out_tuple, log_probs=True, tokens=tokens, reference=reference, **kwargs
             )
             probs = probs[:, -1, :]
             if self.models_size == 1:

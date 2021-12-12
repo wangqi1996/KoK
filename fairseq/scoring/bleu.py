@@ -8,6 +8,7 @@ import math
 import sys
 
 import torch
+
 from fairseq.scoring import BaseScorer, register_scorer
 from fairseq.scoring.tokenizer import EvaluationTokenizer
 

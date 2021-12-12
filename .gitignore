@@ -137,3 +137,11 @@ data-bin/
 # Experimental Folder
 experimental/*
 /scripts/law-process/all_bpe_bin.sh
+/ss/a.png
+/ss/all.png
+/ss/b.png
+/ss/c.png
+/ss/d.png
+/ss/e.png
+/scripts/TM_process/vanilla_train.sh
+/scripts

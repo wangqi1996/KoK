@@ -10,20 +10,19 @@ import importlib
 import logging
 import os
 import sys
-import tempfile
 import warnings
 from itertools import accumulate
 from typing import Callable, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor
+
 from fairseq.data import iterators
 from fairseq.file_io import PathManager
 from fairseq.logging.meters import safe_round
 from fairseq.modules import gelu, gelu_accurate
 from fairseq.modules.multihead_attention import MultiheadAttention
-from torch import Tensor
-
 
 try:
     from amp_C import multi_tensor_l2norm

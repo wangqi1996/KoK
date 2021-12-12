@@ -7,8 +7,6 @@ from sacremoses import MosesTokenizer
 1. 对文本进行了tokenizer处理 
 2. 判断是否是stopwords，a) 对输入全部进行小写处理  b)纯数字  c) 标点符号
 3. 单个文件计算，将recall和all合起来计算召回率
-4. 
-5.
 """
 import string
 

@@ -3,10 +3,12 @@ from typing import Tuple, Optional, Dict, List, Any
 import torch
 from torch import Tensor
 
+from fairseq import utils
 from fairseq.models import register_model, register_model_architecture
 from fairseq.models.KNNModel import build_knn_datastore, KNNDatastore
 from fairseq.models.fairseq_encoder import EncoderOut
-from fairseq.models.transformer import TransformerModel, transformer_wmt19_de_en, TransformerDecoder
+from fairseq.models.transformer import TransformerModel, transformer_wmt19_de_en, TransformerDecoder, \
+    transformer_vaswani_wmt_en_de_big
 
 
 class KNNTransformerDecoder(TransformerDecoder):
@@ -14,8 +16,6 @@ class KNNTransformerDecoder(TransformerDecoder):
     def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, task=None, **kwargs):
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn)
         self.knn_datastore = build_knn_datastore(args, task)
-        # self.knn_type = args.knn_type
-        # self.value_method = getattr(args, "value_method", 'equal')
 
     def forward(
             self,
@@ -28,7 +28,8 @@ class KNNTransformerDecoder(TransformerDecoder):
             alignment_heads: Optional[int] = None,
             src_lengths: Optional[Any] = None,
             return_all_hiddens: bool = False,
-            reference=None
+            reference=None,
+            **kwargs
     ):
         x, extra = self.extract_features(
             prev_output_tokens,
@@ -41,8 +42,9 @@ class KNNTransformerDecoder(TransformerDecoder):
         feature = x
         if not features_only:
             x = self.output_layer(x)
-        knn_result = self.knn_datastore.retrieve_and_score(feature, p_nmt=x.softmax(-1))
-        return x, extra, knn_result
+            knn_result = self.knn_datastore.retrieve_and_score(feature, p_nmt=x.softmax(-1))
+            extra['knn_result'] = knn_result
+        return x, extra
 
     def get_normalized_probs(
             self,
@@ -51,37 +53,25 @@ class KNNTransformerDecoder(TransformerDecoder):
             sample: Optional[Dict[str, Tensor]] = None,
             **kwargs
     ):
-        logits = net_output[0]
-        knn_result = net_output[2]
-        score = self.knn_datastore.get_normalized_probs(logits, log_probs, knn_result=knn_result, **kwargs)
-        return score
+        nmt_score = utils.softmax(net_output[0], dim=-1, onnx_trace=False)
+        knn_score, lambda_value = self.knn_datastore.get_normalized_probs(net_output[1]['knn_result'])
+        score = nmt_score * (1 - lambda_value) + knn_score * lambda_value
 
-    def get_knn_score(self, feature):
-        x = self.output_layer(feature)
-        p_nmt = x.softmax(dim=-1, dtype=torch.float32)
-        return p_nmt
+        if log_probs:
+            score = torch.log(score)
+
+        return score
 
     def add_datastore(self, sample, encoder_out, **kwargs):
         feature, _ = self.extract_features(
             prev_output_tokens=sample['net_input']['prev_output_tokens'],
             encoder_out=encoder_out
         )
-        # if self.knn_type == "positive-negative":
-        #     tokens = self.compute_hypos_input(kwargs["hypo_value"])
-        #     hypo_key, _ = self.extract_features(
-        #         prev_output_tokens=tokens,
-        #         encoder_out=encoder_out
-        #     )
 
-        p_nmt = self.get_knn_score(feature)
+        x = self.output_layer(feature)
+        p_nmt = x.softmax(dim=-1, dtype=torch.float32)
         return self.knn_datastore.add_datastore(feature, sample['target'], p_nmt=p_nmt, **kwargs)
 
-    # def compute_hypos_input(self, hypo_value):
-    #     assert hypo_value.size(0) == 1
-    #     tokens = hypo_value[0].clone()
-    #     tokens[1:] = hypo_value[0][0:-1]
-    #     tokens[0] = self.dictionary.eos()
-    #     return tokens.unsqueeze(0)
 
 
 @register_model("knn_transformer")
@@ -99,11 +89,11 @@ class KNNTransformer(TransformerModel):
     def post_process(self, sample, encoder_out, **kwargs):
         self.decoder.add_datastore(sample, encoder_out, **kwargs)
 
-    def load_state_dict(self, state_dict, strict=True, args=None):
-        super().load_state_dict(state_dict, strict, args)
-        self.decoder.knn_datastore.load_state_dict()
-
-
 @register_model_architecture("knn_transformer", "knn_transformer_wmt19")
 def knn_transformer_wmt19(args):
     transformer_wmt19_de_en(args)
+
+
+@register_model_architecture("knn_transformer", "knn_transformer_wmt14")
+def knn_transformer_wmt14(args):
+    transformer_vaswani_wmt_en_de_big(args)

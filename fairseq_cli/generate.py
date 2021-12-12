@@ -9,11 +9,11 @@ Translate pre-processed data with a trained model.
 
 import ast
 import logging
-import math
 import os
 import sys
 from itertools import chain
 
+import math
 import numpy as np
 import torch
 

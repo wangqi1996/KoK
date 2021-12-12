@@ -55,6 +55,8 @@ if __name__ == '__main__':
     # base_file = "/home/wangdq/output/output.1457.txt"
     # knn_file = "/home/wangdq/output/output.20059.txt"
 
-    base_file = "/home/wangdq/output/output.28793.txt"
-    knn_file = "/home/wangdq/output/output.16046.txt"
+    # base_file = "/home/wangdq/output/output.28793.txt"
+    # knn_file = "/home/wangdq/output/output.16046.txt"
+    base_file = "/home/wangdq/medical/base.50.txt"
+    knn_file = "/home/wangdq/medical/kok.a.txt"
     combina(base_file, knn_file)
