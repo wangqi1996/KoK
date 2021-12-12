@@ -27,7 +27,7 @@ We use an example to show how to use our codes.
 The pre-trained translation model can be downloaded from [this site](https://github.com/pytorch/fairseq/blob/master/examples/wmt19/README.md).
 We use the De->En Single Model for all experiments.
 
-For convenience, We provide pre-processed [data]().
+For convenience, We provide pre-processed [EMEA data](https://drive.google.com/file/d/17ACu2wJ-6Z2vVSu-R9YrTXQ3kINggKpi/view?usp=sharing) and [JRC-Acquis Dataset](https://drive.google.com/file/d/1hi0vjzdWx0FIS335GL2qXqcbdjy-lmXN/view?usp=sharing).
 
 
 ### Inference with KoK
