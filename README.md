@@ -53,7 +53,7 @@ python fairseq_cli/knn_generate.py $DATA_PATH \
 ```
 We recommend you to use the below command:
 ```
-bash scripts/ema/all_kok.sh 1 c
+bash scripts/ema/all_kok.sh
 ```
 
 ### Inference with KNN-MT
