@@ -47,7 +47,7 @@ python fairseq_cli/knn_generate.py $DATA_PATH \
   --batch-size 1 \
   --tokenizer moses --remove-bpe \
   --results-path $OUTPUT_PATH \
-  --model-overrides "{'k': 8, 'lambda_value': 0.3, 'temperature_value': 100, 'label_temperature_value': 100,
+  --model-overrides "{'k': 8, 'lambda_value': 0.3, 'temperature_value': 10, 'label_temperature_value': 10,
   'arch': 'knn_transformer_wmt19', 'knn_type': 'label-datastore', 'distance_threshold': 100
   }"
 ```
